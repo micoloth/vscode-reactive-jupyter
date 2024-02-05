@@ -1,3 +1,4 @@
+export const scriptCode = `
 
 import ast
 import dataclasses 
@@ -2284,3 +2285,5 @@ reactive_python_dag_builder_utils__ = ReactivePythonDagBuilderUtils__()
 
 
 
+
+`;

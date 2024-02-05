@@ -1,9 +1,23 @@
 
 
-import pandas as pd
 
-credentials_redshift = get_credentials_redshift_marketingdb()
-engine_redshift = connect_to_redshift(credentials_redshift)
+path_in = "src/reactive_python_engine.py"
+path_out = "src/reactive_python_engine.ts"
+# Read path as string:
+with open(path_in, 'r') as file:
+    content = file.read()
+
+with open(path_out, 'w') as file:
+    file.write(f'export const scriptCode = `\n{content}\n`;')
+
+
+
+
+
+
+
+
+
 
 
 query = """
@@ -12,6 +26,11 @@ full outer join delta_new_job
 on delta_old_job.ad_id = delta_new_job.ad_id
 ;
 """
+
+import pandas as pd
+
+credentials_redshift = get_credentials_redshift_marketingdb()
+engine_redshift = connect_to_redshift(credentials_redshift)
 
 
 df_delta_ven10 = pd.read_sql(query, engine_redshift)
