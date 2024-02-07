@@ -555,7 +555,7 @@ class ReactivePythonDagBuilderUtils__():
                     lineno=node.lineno-1,
                     end_lineno=node.end_lineno-1,
                     tree_ast=node,
-                    # text="\n".join(splitted_code[node.lineno-1:node.end_lineno]) if splitted_code else "",
+                    # text="acapo".join(splitted_code[node.lineno-1:node.end_lineno]) if splitted_code else "",
                     # Recompute code by ast-dumping the node:
                     text=ast.unparse(node),
                     input_vars=inputs,
@@ -800,14 +800,14 @@ class ReactivePythonDagBuilderUtils__():
             # Give the webweb a title.
             web = Web(title='AST_sample')
 
+            # Source and target index, + "var" label:
             edge_list = [
-                # Source and target index, + "var" label:
                 (source, target, str(vars) if len(vars:=graph[source][target].get('vars', [""])) > 1 else vars[0])
                 for source, target in graph.edges
             ]
 
+            # n: {'name': n, 'shape': 's' if n%2==0 else 'o', 'text': "AAA"} 
             nodes = {
-                # n: {'name': n, 'shape': 's' if n%2==0 else 'o', 'text': "AAA"} 
                 n: {
                     'text': graph.nodes[n].get("text", "..")[:20],
                     '_color': str(graph.nodes[n].get("stale", "BOH"))

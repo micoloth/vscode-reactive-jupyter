@@ -5,7 +5,7 @@ path_in = "src/reactive_python_engine.py"
 path_out = "src/reactive_python_engine.ts"
 # Read path as string:
 with open(path_in, 'r') as file:
-    content = file.read()
+    content = file.read().replace("\\n", "\\\\n")
 
 with open(path_out, 'w') as file:
     file.write(f'export const scriptCode = `\n{content}\n`;')
