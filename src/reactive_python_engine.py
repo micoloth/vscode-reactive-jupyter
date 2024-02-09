@@ -536,7 +536,7 @@ class ReactivePythonDagBuilderUtils__():
             stale: bool = False
         
         def node_repr_hash(node: DagNode):
-            repr = f"{node['lineno']}-{node['end_lineno']}: {node['text']}"
+            repr = f"{node['lineno']}-{node['end_lineno']}: {node['text'].strip()}"
             # Hash this string to some 8-digit number:
             return int(hashlib.sha256(repr.encode('utf-8')).hexdigest(), 16) % 10**8
 

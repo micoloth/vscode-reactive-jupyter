@@ -32,73 +32,32 @@ const MarkdownMimeType = 'text/markdown';
 const HtmlMimeType = 'text/html';
 const textDecoder = new TextDecoder();
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// PYTHON COMMANDS AND SNIPPETS
-////////////////////////////////////////////////////////////////////////////////////////////////////
-
 type AnnotatedRange = {
     range: Range;
     state: string; // Remember this exists too: 'synced' | 'outdated';
     current: boolean;
     text?: string;
     hash?: string; // Hash is used so that when you send a node Back to Python, you can check if it actually him or not
+    has_children?: boolean;
 };
 
-/* Read script content from file: */
-async function generateCodeToGetVariableTypes(): Promise<string> {
-    return scriptCode;
-
-}
-
-export const getCommandToGetRangeToSelectFromPython = (currentQuery: string): string => {
-    /*
-    FAKE
-    */
-    // Pass currentQuery as a SIMPLE STRING, ie all the newlines should be passed in as explicit \n and so on:
-    // Turn currentQuery in a string that can be passed to Python, by sanitizing all the Newlines, Quotes and Indentations
-    // (ie, keeping them but in a way that Python can receive as a string):
-    return 'get_commands_to_execute("""' + currentQuery + '""")';
-};
-
-export const getCommandToGetAllRanges = (
-	text: string | null,
-	current_line: number | null,
-	upstream: boolean,
-	downstream: boolean,
-	stale_only: boolean,
-	to_launch_compute: boolean = false
-): string => {
-    let text_ = text || 'None';
-    let current_line_str: string = current_line ? current_line.toString() : 'None';
-    let upstream_param: string = upstream ? 'True' : 'False';
-    let downstream_param: string = downstream ? 'True' : 'False';
-    let stale_only_param: string = stale_only ? 'True' : 'False';
-    // return `if "reactive_python_dag_builder_utils__" in globals():\n\treactive_python_dag_builder_utils__.update_dag_and_get_ranges(code= ${text_}, current_line=${current_line_str}, get_upstream=${upstream_param}, get_downstream=${downstream_param}, stale_only=${stale_only_param})\nelse:\n\t[]`;
-    if (to_launch_compute) {
-        return `reactive_python_dag_builder_utils__.ask_for_ranges_to_compute(code= ${text_}, current_line=${current_line_str}, get_upstream=${upstream_param}, get_downstream=${downstream_param}, stale_only=${stale_only_param})`;
-    } else {
-        return `reactive_python_dag_builder_utils__.update_dag_and_get_ranges(code= ${text_}, current_line=${current_line_str}, get_upstream=${upstream_param}, get_downstream=${downstream_param}, stale_only=${stale_only_param})`;
-    }
-};
-
-export const getSyncRangeCommand = (range: AnnotatedRange): string => {
-    return `reactive_python_dag_builder_utils__.set_locked_range_as_synced(${range.hash})`;
-};
-
-export const getUnlockCommand = (): string => {
-    return `reactive_python_dag_builder_utils__.unlock()`;
-};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // UTILS
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-async function* executeCodeStream(code: string, kernel: Kernel, logger: OutputChannel) {
-    // NEW SYSTEM !!!
-    // 	// logger.show();
-    // 	// logger.appendLine(`>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`);
-    // 	// logger.appendLine(`Executing code against kernel ${code}`);
+async function* executeCodeStreamInKernel(code: string, kernel: Kernel, output_channel: OutputChannel | null) {
+    /*
+    Currently, it ALWAYS logs a line (for the user), and it is NOT AN ERROR returs the result, else Undefined. 
+    If you need Debugging traces, use console.log(). (currently it logs errors)
+    */
+
+    if (output_channel) {
+        output_channel.show(true);
+    }
+    // 	// output_channel.appendLine(`>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`);
+    // 	// output_channel.appendLine(`Executing code against kernel ${code}`);
     const tokenSource = new CancellationTokenSource();
     try {
         for await (const output of kernel.executeCode(code, tokenSource.token)) {
@@ -106,38 +65,144 @@ async function* executeCodeStream(code: string, kernel: Kernel, logger: OutputCh
                 const decoded = textDecoder.decode(outputItem.data);
                 if (outputItem.mime === ErrorMimeType) {
                     const error = JSON.parse(decoded) as Error;
-                    // logger.appendLine( `Error executing code ${error.name}: ${error.message},/n ${error.stack}` );
+                    if (output_channel) {
+                        output_channel.appendLine(`Error executing code ${error.name}: ${error.message},/n ${error.stack}`);
+                    }
                     console.log(`Error executing code ${error.name}: ${error.message},/n ${error.stack}`);
-                    yield decoded;
+                    yield undefined;
                 } else {
-                    // logger.appendLine( `${outputItem.mime} Output: ${decoded}` );
+                    if (output_channel) {
+                        output_channel.appendLine( `${outputItem.mime} Output: ${decoded}` );
+                    }   
                     yield decoded;
+                    if (output_channel) {
+                        // Remove one line from the output channel:
+                        // output_channel.appendLine('Code execution completed');
+                    }
                 }
             }
         }
-    // 		// logger.appendLine('Code execution completed');
-    // 		// logger.appendLine(`<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<`);
+    // 		// output_channel.appendLine('Code execution completed');
+    // 		// output_channel.appendLine(`<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<`);
     // 	} catch (ex){
-    // 		// logger.appendLine(`Code execution failed with an error '${ex}'`);
-    // 		// logger.appendLine(`<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<`);
+    // 		// output_channel.appendLine(`Code execution failed with an error '${ex}'`);
+    // 		// output_channel.appendLine(`<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<`);
     }
     finally {
         tokenSource.dispose();
     }
 }
 
-async function executeCode(code: string, kernel: Kernel, logger: OutputChannel) {
+async function executeCodeInKernel(code: string, kernel: Kernel, output_channel: OutputChannel | null) {
     let result = '';
-    for await (const output of executeCodeStream(code, kernel, logger)) {
+    for await (const output of executeCodeStreamInKernel(code, kernel, output_channel)) {
+        if (output === undefined) {
+            return undefined;
+        }
         result += output;
     }
     return result;
 }
 
 
+async function executeCodeInInteractiveWindow(
+    text: string | null,
+    kernel: Kernel,
+    output: OutputChannel,
+    activeTextEditor: TextEditor
+) {
+    let resDel = await vscode.commands.executeCommand('jupyter.interactive.clearAllCells');
+    console.log('---- >>>> RES DEL: ', resDel);
+    if (!text) return;
+    // console.log('>> TEXT: ', text);
+    // let res = await getIWAndRunText(serviceManager, activeTextEditor, text);
+    // let res = await executeCodeInKernel(text, kernel, output);
+
+    console.log('---- >>>> CODE: ', text);
+    let res = await vscode.commands.executeCommand('jupyter.execSelectionInteractive', text);
+    // "command": "jupyter.execSelectionInteractive",  runDependentCells
+    console.log('---- >>>> RES: ', res);
+    // console.log('>> RESULT: ', res);
+    // Check if res is an Error:
+    if (res === undefined) {  // TODO I'm not doing that at all....
+        return;
+    }
+}
 
 
-async function selectKernel(): Promise<Kernel | undefined> {
+
+// USEFUL:                             
+// "jupyter.createnewinteractive",  // Create Interactive Window
+// "jupyter.deleteCells"  // Delete Selected Cells
+// "jupyter.restartkernel"  // Restart Kernel
+// "jupyter.removeallcells"  // Delete All Notebook Editor Cells
+// "jupyter.interactive.clearAllCells"  // Clear All
+// "jupyter.selectDependentCells"  //  :O
+
+// interactive.open - Open interactive window and return notebook editor and input URI
+
+// showOptions - Show Options
+// resource - Interactive resource Uri
+// controllerId - Notebook controller Id
+// title - Interactive editor title
+// (returns) - Notebook and input URI
+
+
+
+
+async function queueComputation(
+    current_ranges: AnnotatedRange[] | undefined,
+    kernel: Kernel,
+    output: OutputChannel,
+    activeTextEditor: TextEditor
+) {
+    // console.log('>> CURRENT RANGES::::: ' + current_ranges);
+    if (current_ranges) {
+        // let resDel = await vscode.commands.executeCommand('jupyter.interactive.clearAllCells');
+        // console.log('---- >>>> RES DEL: ', resDel);
+        for (let range of current_ranges) {
+            if (!range.text) break;
+            // console.log('>> TEXT: ', range.text);
+            
+            if (!range.has_children) {  // TODOTODO: CHange this !!
+                let res = await executeCodeInKernel(range.text, kernel, output);
+                if (res === undefined) {
+                    vscode.window.showErrorMessage("Failed to execute the range's state in Python: " + range.hash + " -- " + res);
+                    break;
+                }
+            }
+            else {
+                let res = await executeCodeInInteractiveWindow(range.text, kernel, output, activeTextEditor);
+            }
+            
+            // console.log('>> updateRange_command: ', updateRange_command);
+            const update_result = await executeCodeInKernel(getSyncRangeCommand(range), kernel, null);
+            if (!update_result) {
+                vscode.window.showErrorMessage("Failed to update the range's state in Python: " + range.hash + " -- " + update_result);
+                break;
+            }
+            // Trigger a onDidChangeTextEditorSelection event:
+            const refreshed_ranges = await getCurrentRangesFromPython(activeTextEditor, kernel, output, {
+                rebuild: false
+            });
+            if (refreshed_ranges) {
+                updateDecorations(activeTextEditor, refreshed_ranges);
+            }
+        }
+    }
+    let unlockCommand = getUnlockCommand();
+    const update_result = await executeCodeInKernel(unlockCommand, kernel, null);
+    if (!update_result) {
+        vscode.window.showErrorMessage('Failed to unlock the Python kernel: ' + update_result);
+    }
+    else{
+        console.log('>> unlockCommand successful: ', update_result);
+    }
+}
+
+
+
+async function selectKernelOnce(): Promise<Kernel | undefined> {
 
     // NEW SYSTEM !!!
     
@@ -182,8 +247,8 @@ async function selectKernel(): Promise<Kernel | undefined> {
             if (kernel && (kernel as any).language === 'python') { 
                 kernelDocumentPairs.push([kernel, document]);
             }
-        })).finally(() => console.log('Done'));
-        console.log(kernelDocumentPairs);
+        }));
+        // console.log(kernelDocumentPairs);  // This was actually interesting ...
 
         if (kernelDocumentPairs.length === 1) {
             return resolve(kernelDocumentPairs[0][0]);
@@ -235,7 +300,87 @@ async function selectKernel(): Promise<Kernel | undefined> {
 		);
 		quickPick.onDidHide(() => resolve(undefined), undefined, toDispose);
 	}).finally(() => Disposable.from(...toDispose).dispose());
+
 }
+
+
+async function selectKernel(): Promise<Kernel | undefined>  {
+    /*
+    If Kernel is undefined, starts a new one by calling command 'jupyter.createnewinteractive'
+    */
+    let kernel = await selectKernelOnce();
+    // console.log('>> kernel >> : ', kernel);
+    for (let i = 0; i < 4; i++) {
+        if (kernel === undefined) {
+            vscode.window.showInformationMessage('Reactive Python: Starting Python Kernel: attempt ' + (i + 1));
+
+            for (let j = 0; j < 3; j++) {
+                await new Promise((resolve) => setTimeout(resolve, 3000));
+                kernel = await selectKernelOnce();
+                if (kernel !== undefined) {
+                    vscode.window.showInformationMessage('Reactive Python: Successfully started Python Kernel!');
+                    break;
+                }
+            }
+        } else {
+            return kernel;
+        }
+    }
+    vscode.window.showInformationMessage('Reactive Python: Failed to start Python Kernel with the Jupiter extension.');
+    throw new Error('Could not get kernel');
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// PYTHON COMMANDS AND SNIPPETS
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+
+/* Read script content from file: */
+async function generateCodeToGetVariableTypes(): Promise<string> {
+    return scriptCode;
+
+}
+
+export const getCommandToGetRangeToSelectFromPython = (currentQuery: string): string => {
+    /*
+    FAKE
+    */
+    // Pass currentQuery as a SIMPLE STRING, ie all the newlines should be passed in as explicit \n and so on:
+    // Turn currentQuery in a string that can be passed to Python, by sanitizing all the Newlines, Quotes and Indentations
+    // (ie, keeping them but in a way that Python can receive as a string):
+    return 'get_commands_to_execute("""' + currentQuery + '""")';
+};
+
+export const getCommandToGetAllRanges = (
+	text: string | null,
+	current_line: number | null,
+	upstream: boolean,
+	downstream: boolean,
+	stale_only: boolean,
+	to_launch_compute: boolean = false
+): string => {
+    let text_ = text || 'None';
+    let current_line_str: string = current_line ? current_line.toString() : 'None';
+    let upstream_param: string = upstream ? 'True' : 'False';
+    let downstream_param: string = downstream ? 'True' : 'False';
+    let stale_only_param: string = stale_only ? 'True' : 'False';
+    // return `if "reactive_python_dag_builder_utils__" in globals():\n\treactive_python_dag_builder_utils__.update_dag_and_get_ranges(code= ${text_}, current_line=${current_line_str}, get_upstream=${upstream_param}, get_downstream=${downstream_param}, stale_only=${stale_only_param})\nelse:\n\t[]`;
+    if (to_launch_compute) {
+        return `reactive_python_dag_builder_utils__.ask_for_ranges_to_compute(code= ${text_}, current_line=${current_line_str}, get_upstream=${upstream_param}, get_downstream=${downstream_param}, stale_only=${stale_only_param})`;
+    } else {
+        return `reactive_python_dag_builder_utils__.update_dag_and_get_ranges(code= ${text_}, current_line=${current_line_str}, get_upstream=${upstream_param}, get_downstream=${downstream_param}, stale_only=${stale_only_param})`;
+    }
+};
+
+export const getSyncRangeCommand = (range: AnnotatedRange): string => {
+    return `reactive_python_dag_builder_utils__.set_locked_range_as_synced(${range.hash})`;
+};
+
+export const getUnlockCommand = (): string => {
+    return `reactive_python_dag_builder_utils__.unlock()`;
+};
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // HIGHLIGHTING UTILS
@@ -401,11 +546,11 @@ const getCurrentRangesFromPython = async (
     }
     if (!kernel) return;
     // console.log('3: Here we are: ', command)
-    const result = await executeCode(command, kernel, output);
+    const result = await executeCodeInKernel(command, kernel, null);
     // console.log('4: Result from Python: ' + result);
     if (result === undefined ||  result == '[]') return;
     if (to_launch_compute) {
-        console.log('Result from Python: ' + result);
+        console.log('Result from Python to compute: ' + result);
     }
     const ranges_out = await parseResultFromPythonAndGetRange(result);
     if (!ranges_out) return;
@@ -541,10 +686,8 @@ export class CellCodelensProvider implements vscode.CodeLensProvider {
         document: vscode.TextDocument,
         token: vscode.CancellationToken
     ): vscode.CodeLens[] | Thenable<vscode.CodeLens[]> {
-        // console.log('>>>>>>>>>>>>>>>>>>NICE, INVOKED ONCE. ');
         let editor = vscode.window.activeTextEditor;
         if (editor && this.range && editor.document.uri == document.uri) {
-            // console.log('>>>>>>>>>>>>>>>>>>THESE URIS ARE THE SAME! ');
             // Current line:
             this.codeLenses = [
                 new vscode.CodeLens(new vscode.Range(this.range.start.line, 0, this.range.end.line, 0), {
@@ -580,7 +723,9 @@ export class InitialCodelensProvider implements vscode.CodeLensProvider {
     ): vscode.CodeLens[] | Thenable<vscode.CodeLens[]> {
         // console.log('>>>>>>>>>>>>>>>>>>NICE, INVOKED ONCE. ');
         let editor = vscode.window.activeTextEditor;
+        // console.log('>>>>>>>>>>>>>>>>>>NICE, INVOKED ONCE. ' + editor);
         if (editor && editor.document.uri == document.uri) {
+            // console.log('>>>>>>>>>>>>>>>>>>INSIDE THE IF. ' + editor);
             let codeLenses = [
                 new vscode.CodeLens(new vscode.Range(0, 0, 0, 0), {
                     title: '$(debug-start) Initialize Reactive Python',
@@ -606,46 +751,7 @@ export class InitialCodelensProvider implements vscode.CodeLensProvider {
 // COMMANDS
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-async function queueComputation(
-    current_ranges: AnnotatedRange[] | undefined,
-    kernel: Kernel,
-    output: OutputChannel,
-    activeTextEditor: TextEditor
-) {
-    // console.log('>> CURRENT RANGES::::: ' + current_ranges);
-    if (current_ranges) {
-        for (let range of current_ranges) {
-            if (!range.text) break;
-            // console.log('>> TEXT: ', range.text);
-            // let res = await getIWAndRunText(serviceManager, activeTextEditor, range.text);
-            let res = await executeCode(range.text, kernel, output);
-            // console.log('>> RESULT: ', res);
-            // Check if res is an Error:
-            if (res === undefined) {
-                break;
-            }
-            let updateRange_command = getSyncRangeCommand(range);
-            // console.log('>> updateRange_command: ', updateRange_command);
-            const update_result = await executeCode(updateRange_command, kernel, output);
-            if (!update_result) {
-                vscode.window.showErrorMessage("Failed to update the range's state in Python: " + range.hash + " -- " + update_result);
-                break;
-            }
-        }
-    }
-    let unlockCommand = getUnlockCommand();
-    const update_result = await executeCode(unlockCommand, kernel, output);
-    if (!update_result) {
-        vscode.window.showErrorMessage('Failed to unlock the Python kernel: ' + update_result);
-    }
-    // Trigger a onDidChangeTextEditorSelection event:
-    const refreshed_ranges = await getCurrentRangesFromPython(activeTextEditor, kernel, output, {
-        rebuild: false
-    });
-    if (refreshed_ranges) {
-        updateDecorations(activeTextEditor, refreshed_ranges);
-    }
-}
+
 
 export function createPreparePythonEnvForReactivePython(output: OutputChannel) {
     async function preparePythonEnvForReactivePython() {
@@ -653,9 +759,17 @@ export function createPreparePythonEnvForReactivePython(output: OutputChannel) {
         we DON'T want to run this on Activation, but WE ARE DOING IT FOR NOW. for easier testing.
         */
         let command = scriptCode + '\n\n\n"Reactive Python Activated"\n';
+        
+        if (vscode.workspace.notebookDocuments.length < 1)
+        {
+            let resIW = await vscode.commands.executeCommand('jupyter.createnewinteractive');
+            console.log('>> resIW: ', resIW);
+        }
+        let resWelcome = await vscode.commands.executeCommand('jupyter.execSelectionInteractive', "# Welcome to Reactive Python");
+        console.log('>> resWelcome: ', resWelcome);
         let kernel = await selectKernel();
         if (!kernel) return;
-        const result = executeCode(command, kernel, output);
+        const result = executeCodeInKernel(command, kernel, output);
         if (result !== undefined) {
             vscode.window.showInformationMessage('Result: ' + result);
             if (window.activeTextEditor) {
@@ -806,19 +920,19 @@ export function activate(context: ExtensionContext) {
 
 export async function defineAllCommands(context: ExtensionContext, output: OutputChannel
 ) {
-	context.subscriptions.push(
-		commands.registerCommand('jupyterKernelExecution.listKernels', async () => {
-			const kernel = await selectKernel();
-			if (!kernel) {
-				return;
-			}
-			const code = "12+15";
-			if (!code) {
-				return;
-			}
-			await executeCode(code, kernel, output);
-		})
-	);
+	// context.subscriptions.push(
+	// 	commands.registerCommand('jupyterKernelExecution.listKernels', async () => {
+	// 		const kernel = await selectKernel();
+	// 		if (!kernel) {
+	// 			return;
+	// 		}
+	// 		const code = "12+15";
+	// 		if (!code) {
+	// 			return;
+	// 		}
+	// 		await executeCodeInKernel(code, kernel, output);
+	// 	})
+	// );
 
     // The command has been defined in the package.json file // Now provide the implementation of the command with registerCommand // The commandId parameter must match the command field in package.json
     context.subscriptions.push(
@@ -850,7 +964,8 @@ export async function defineAllCommands(context: ExtensionContext, output: Outpu
 
     const codelensProvider = new CellCodelensProvider();
     languages.registerCodeLensProvider('python', codelensProvider);
-    languages.registerCodeLensProvider('python', new InitialCodelensProvider());
+    const initializingProvider = new InitialCodelensProvider();
+    languages.registerCodeLensProvider('python', initializingProvider);
 
     ///////// Document Highlights: ///////////////////////
 
@@ -904,7 +1019,7 @@ export async function defineAllCommands(context: ExtensionContext, output: Outpu
                     updateDecorations(window.activeTextEditor, current_ranges);
                 }
                 let codelense_range = current_ranges ? current_ranges.filter((r) => r.current).map((r) => r.range) : [];
-                // console.log('----- Here 4! ');
+                // console.log('----- Here 4! ', codelense_range);
                 codelensProvider.change_range(codelense_range.length > 0 ? codelense_range[0] : undefined);
             } else {
                 // console.log('----- Here 5! ');

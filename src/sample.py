@@ -97,3 +97,102 @@ d +=5
 
 d +=6
 
+
+
+
+
+
+
+
+
+a = 5
+
+a = 6  
+
+a = 7
+
+print(a)
+
+
+# LINEAR REGRESSION DEMO:
+
+# Download Titanica data:
+
+import pandas as pd
+df = pd.read_csv('https://web.stanford.edu/class/archive/cs/cs109/cs109.1166/stuff/titanic.csv')
+df.shape
+
+# Import the Linear Regression model from sklearn:
+
+# Train test split:
+
+from sklearn.model_selection import train_test_split
+
+X = df[['Pclass', 'Age', 'Siblings/Spouses Aboard', 'Parents/Children Aboard', 'Fare']]
+df.columns
+y = df['Survived']
+
+# Data preparation:
+X = X.fillna(X.mean())
+
+# Add the Quadratic dimesnions:
+from sklearn.preprocessing import PolynomialFeatures
+
+poly = PolynomialFeatures(degree=2)
+
+X = poly.fit_transform(X)
+
+X.shape
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+
+
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+
+lr = LinearRegression().fit(X_train, y_train)
+lr.coef_.shape
+lr.intercept_
+
+mean_absolute_error(y_train, lr.predict(X_train))
+lr.score(X_train,y_train) # R^2
+
+# Use a Ridge regression model instead:
+
+from sklearn.linear_model import Ridge
+
+alpha = 1
+ridge = Ridge(alpha=alpha).fit(X_train, y_train)
+
+# Calculate F1 score:
+
+from sklearn.metrics import f1_score
+
+f1_score(y_train, lr.predict(X_train) > 0.5)
+
+# Calculate the confusion matrix:
+
+from sklearn.metrics import confusion_matrix
+
+
+
+conf = confusion_matrix(y_train, lr.predict(X_train) > 0.5)
+
+conf = confusion_matrix(y_train, ridge.predict(X_train) > 0.5)
+
+# Show a heatmap of the confusion matrix:
+
+import seaborn as sns
+
+sns.heatmap(conf, annot=True)
+
+# In this representation, the COLUMNS are:
+# - The predicted values
+# While the ROWS are:
+# - The actual values
+
+b = a +5+5
+
+
+
