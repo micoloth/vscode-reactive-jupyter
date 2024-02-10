@@ -15,7 +15,10 @@ import {
     NotebookDocument,
     Position,
     Selection,
-    CodeLensProvider
+    CodeLensProvider,
+    Uri,
+    NotebookEditor,
+    ViewColumn
 } from 'vscode';
 import { Jupyter, Kernel, JupyterServerCommandProvider } from '@vscode/jupyter-extension';
 import path = require('path');
@@ -40,6 +43,9 @@ type AnnotatedRange = {
     hash?: string; // Hash is used so that when you send a node Back to Python, you can check if it actually him or not
     has_children?: boolean;
 };
+
+
+const editorToIWKey = 'editorToIWKey';
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -131,7 +137,8 @@ async function executeCodeInInteractiveWindow(
 
 
 
-// USEFUL:                             
+// USEFUL:                           
+// "jupyter.execSelectionInteractive"  
 // "jupyter.createnewinteractive",  // Create Interactive Window
 // "jupyter.deleteCells"  // Delete Selected Cells
 // "jupyter.restartkernel"  // Restart Kernel
@@ -146,6 +153,11 @@ async function executeCodeInInteractiveWindow(
 // controllerId - Notebook controller Id
 // title - Interactive editor title
 // (returns) - Notebook and input URI
+
+
+// IMPORTANT IDEA: controller == kernel !!
+// TODO: Look for NotebookController
+
 
 
 
@@ -198,6 +210,71 @@ async function queueComputation(
     else{
         console.log('>> unlockCommand successful: ', update_result);
     }
+}
+
+function getInteractiveViewColumn(resource:  Uri | undefined): ViewColumn {
+    if (resource) {
+        return ViewColumn.Beside;
+    }
+
+    const setting = vscode.workspace.getConfiguration('jupyter').get<string>('interactiveWindow.viewColumn');
+    if (setting === 'secondGroup') {
+        return ViewColumn.One;
+    } else if (setting === 'active') {
+        return ViewColumn.Active;
+    }
+
+    return ViewColumn.Beside;
+}
+
+
+export const JVSC_EXTENSION_ID = 'ms-toolsai.jupyter';
+export type INativeInteractiveWindow = { notebookUri: Uri; inputUri: Uri; notebookEditor: NotebookEditor };
+export type InteractiveWindowMode = 'perFile' | 'single' | 'multiple';
+
+async function createEditor(
+    preferredController: any,  // : IVSCodeNotebookController | undefined,
+    resource: Uri | undefined,
+    mode: InteractiveWindowMode
+): Promise<[Uri, NotebookEditor]> {
+    const controllerId = preferredController ? `${JVSC_EXTENSION_ID}/${preferredController.id}` : undefined;
+    const hasOwningFile = resource !== undefined;
+    let viewColumn = getInteractiveViewColumn(resource);
+    const { inputUri, notebookEditor } = (await commands.executeCommand(
+        'interactive.open',
+        { viewColumn: viewColumn, preserveFocus: hasOwningFile },  // Keep focus on the owning file if there is one
+        undefined,
+        controllerId,
+        resource && mode === 'perFile' ? ('Interactive - ' + (path.basename(resource.path))) : undefined
+        
+    )) as unknown as INativeInteractiveWindow;
+    if (!notebookEditor) {
+        // This means VS Code failed to create an interactive window.
+        // This should never happen.
+        throw new Error('Failed to request creation of interactive window from VS Code.');
+    }
+    return [inputUri, notebookEditor];
+}
+
+async function getInteractiveWindow(editor: TextEditor) {
+    // Get uri of the current file:
+    let uri = editor.document.uri.toString();
+    // Get the workspace storage:
+    let workspaceStorage = currentContext.workspaceState
+    // Get the map:
+    let editorToIW = workspaceStorage.get(editorToIWKey, new Map<string, string>());
+    // Get the IW uri or Null:
+    let IW_uri = editorToIW.get(uri);
+    // If it's null, create a new one:
+    if (!IW_uri) {
+        let resIW = await vscode.commands.executeCommand('jupyter.createnewinteractive');
+        console.log('>> resIW: ', resIW);
+        IW_uri = resIW.resource.toString();
+        editorToIW.set(uri, IW_uri);
+        workspaceStorage.update(editorToIWKey, editorToIW);
+    }
+
+    
 }
 
 
@@ -903,7 +980,7 @@ const Context = new Proxy<typeof currentContext>(currentContext, handler);
 export function activate(context: ExtensionContext) {
 	const jupyterExt = extensions.getExtension<Jupyter>('ms-toolsai.jupyter');
 	if (!jupyterExt) {
-		throw new Error('Jupyter Extension not installed');
+		throw new Error('The Jupyter Extension not installed. Please install it and try again.');
 	}
 	if (!jupyterExt.isActive) {
 		jupyterExt.activate();
@@ -911,6 +988,7 @@ export function activate(context: ExtensionContext) {
 	const output = window.createOutputChannel('Jupyter Kernel Execution');
 	context.subscriptions.push(output);
 
+    currentContext = context as typeof currentContext;
 
     defineAllCommands(context, output);
 }
