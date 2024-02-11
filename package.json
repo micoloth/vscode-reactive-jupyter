@@ -1,11 +1,11 @@
 {
 	"name": "jupyter-kernel-execution-sample",
-    "displayName": "Reactive Jupyter",
-    "description": "Jupyter notebook support, with Reactive interactive programming and computing and support for Intellisense, debugging, and more.",
-    "publisher": "micoloth",
-    "author": {
-        "name": "Mike Tasca"
-    },
+	"displayName": "Reactive Jupyter",
+	"description": "Jupyter notebook support, with Reactive interactive programming and computing and support for Intellisense, debugging, and more.",
+	"publisher": "micoloth",
+	"author": {
+		"name": "Mike Tasca"
+	},
 	"version": "0.0.1",
 	"engines": {
 		"vscode": "^1.86.0"
@@ -13,97 +13,98 @@
 	"categories": [
 		"Other"
 	],
-    "keywords": [
-        "jupyter",
-        "reactive",
-        "notebook",
-        "notebookKernelJupyterNotebook",
-        "multi-root ready",
-        "python"
-    ],
+	"keywords": [
+		"jupyter",
+		"reactive",
+		"notebook",
+		"notebookKernelJupyterNotebook",
+		"multi-root ready",
+		"python"
+	],
 	"activationEvents": [
 		"onNotebook:jupyter-notebook",
-		"onNotebook:interactive"
+		"onNotebook:interactive",
+		"onLanguage:python"
 	],
 	"extensionDependencies": [
 		"ms-toolsai.jupyter"
 	],
 	"main": "./out/extension.js",
-    "contributes": {
-        "colors": [
-            {
-                "id": "jupyter.syncedCell",
-                "description": "Background decoration color for synced unselected cell",
-                "defaults": {
-                    "dark": "#0dca3957",
-                    "light": "#0dca3957",
-                    "highContrast": "#0dca3957"
-                }
-            },
-            {
-                "id": "jupyter.syncedCurrentCell",
-                "description": "Background decoration color for synced unselected cell",
-                "defaults": {
-                    "dark": "#0dca39c8",
-                    "light": "#0dca39c8",
-                    "highContrast": "#0dca39c8"
-                }
-            },
-            {
-                "id": "jupyter.outdatedCell",
-                "description": "Background decoration color for current query",
-                "defaults": {
-                    "dark": "#d4164658",
-                    "light": "#d4164658",
-                    "highContrast": "#d4164658"
-                }
-            },
-            {
-                "id": "jupyter.outdatedCurrentCell",
-                "description": "Background decoration color for current query",
-                "defaults": {
-                    "dark": "#d41646da",
-                    "light": "#d41646da",
-                    "highContrast": "#d41646da"
-                }
-            }
-        ],
+	"contributes": {
+		"colors": [
+			{
+				"id": "jupyter.syncedCell",
+				"description": "Background decoration color for synced unselected cell",
+				"defaults": {
+					"dark": "#0dca3957",
+					"light": "#0dca3957",
+					"highContrast": "#0dca3957"
+				}
+			},
+			{
+				"id": "jupyter.syncedCurrentCell",
+				"description": "Background decoration color for synced unselected cell",
+				"defaults": {
+					"dark": "#0dca39c8",
+					"light": "#0dca39c8",
+					"highContrast": "#0dca39c8"
+				}
+			},
+			{
+				"id": "jupyter.outdatedCell",
+				"description": "Background decoration color for current query",
+				"defaults": {
+					"dark": "#d4164658",
+					"light": "#d4164658",
+					"highContrast": "#d4164658"
+				}
+			},
+			{
+				"id": "jupyter.outdatedCurrentCell",
+				"description": "Background decoration color for current query",
+				"defaults": {
+					"dark": "#d41646da",
+					"light": "#d41646da",
+					"highContrast": "#d41646da"
+				}
+			}
+		],
 		"commands": [
 			{
 				"command": "jupyterKernelExecution.listKernels",
 				"title": "Execute code against a Python Kernel",
 				"category": "Jupyter Kernel API"
 			},
-            {
-                "command": "jupyter.initialize-reactive-python-extension",
-                "title": "Initialize Reactive Python",
-                "category": "Reactive Python"
-            },
-            {
-                "command": "jupyter.sync-downstream",
-                "title": "Refresh all Downstream",
-                "category": "Reactive Python"
-            },
-            {
-                "command": "jupyter.sync-upstream",
-                "title": "Refresh all Upstream",
-                "category": "Reactive Python"
-            },
-            {
-                "command": "jupyter.sync-upstream-and-downstream",
-                "title": "Refresh all Upstream and Downstream of the current cell",
-                "category": "Reactive Python"
-            },
-            {
-                "command": "jupyter.sync-all",
-                "title": "Refresh all Stale Cells",
-                "category": "Reactive Python"
-            },
-            {
-                "command": "jupyter.test-command",
-                "title": "Refresh all Downstream",
-                "category": "Reactive Python"
-            }
+			{
+				"command": "jupyter.initialize-reactive-python-extension",
+				"title": "Initialize Reactive Python",
+				"category": "Reactive Python"
+			},
+			{
+				"command": "jupyter.sync-downstream",
+				"title": "Refresh all Downstream",
+				"category": "Reactive Python"
+			},
+			{
+				"command": "jupyter.sync-upstream",
+				"title": "Refresh all Upstream",
+				"category": "Reactive Python"
+			},
+			{
+				"command": "jupyter.sync-upstream-and-downstream",
+				"title": "Refresh all Upstream and Downstream of the current cell",
+				"category": "Reactive Python"
+			},
+			{
+				"command": "jupyter.sync-all",
+				"title": "Refresh all Stale Cells",
+				"category": "Reactive Python"
+			},
+			{
+				"command": "jupyter.test-command",
+				"title": "Refresh all Downstream",
+				"category": "Reactive Python"
+			}
 		],
 		"menus": {
 			"commandPalette": [
@@ -122,12 +123,16 @@
 	},
 	"devDependencies": {
 		"@types/node": "14.x",
+		"@types/uuid": "^3.4.3",
 		"@types/vscode": "^1.82.0",
 		"@typescript-eslint/eslint-plugin": "^6.7.0",
 		"@typescript-eslint/parser": "^6.7.0",
 		"@vscode/jupyter-extension": "^1.1.0",
-		"@vscode/jupyter": "^1.1.0",
 		"eslint": "^7.27.0",
 		"typescript": "^5.2.2"
+	},
+	"dependencies": {
+		"@vscode/python-extension": "^1.0.5",
+		"uuid": "^9.0.1"
 	}
 }

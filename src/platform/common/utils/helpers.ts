@@ -1,0 +1,109 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+/**
+ * Split a string using the cr and lf characters and return them as an array.
+ * By default lines are trimmed and empty lines are removed.
+ * @param {SplitLinesOptions=} splitOptions - Options used for splitting the string.
+ */
+export function splitLines(
+    value: string,
+    splitOptions: { trim: boolean; removeEmptyEntries?: boolean } = { removeEmptyEntries: true, trim: true }
+): string[] {
+    value = value || '';
+    let lines = value.split(/\r?\n/g);
+    if (splitOptions && splitOptions.trim) {
+        lines = lines.map((line) => line.trim());
+    }
+    if (splitOptions && splitOptions.removeEmptyEntries) {
+        lines = lines.filter((line) => line.length > 0);
+    }
+    return lines;
+}
+
+/**
+ * Appropriately formats a string so it can be used as an argument for a command in a shell.
+ * E.g. if an argument contains a space, then it will be enclosed within double quotes.
+ * @param {String} value.
+ */
+export function toCommandArgument(value: string): string {
+    if (!value) {
+        return value;
+    }
+    return value.indexOf(' ') >= 0 && !value.startsWith('"') && !value.endsWith('"') ? `"${value}"` : value.toString();
+}
+
+/**
+ * Appropriately formats a a file path so it can be used as an argument for a command in a shell.
+ * E.g. if an argument contains a space, then it will be enclosed within double quotes.
+ */
+export function fileToCommandArgument(value: string): string {
+    if (!value) {
+        return value;
+    }
+    return toCommandArgument(value).replace(/\\/g, '/');
+}
+
+/**
+ * String.trimQuotes implementation
+ * Removes leading and trailing quotes from a string
+ */
+export function trimQuotes(value: string): string {
+    if (!value) {
+        return value;
+    }
+    return value.replace(/(^['"])|(['"]$)/g, '');
+}
+
+/**
+ * String.format() implementation.
+ * Tokens such as {0}, {1} will be replaced with corresponding positional arguments.
+ */
+export function format(value: string, ...args: string[]) {
+    return value.replace(/{(\d+)}/g, (match, number) => (args[number] === undefined ? match : args[number]));
+}
+
+export function createPublicAPIProxy<T extends object>(target: T, membersToHide: (keyof T)[]): T {
+    const membersToHideList = membersToHide as (string | symbol)[];
+    return new Proxy(target, {
+        has(target, p) {
+            if (membersToHideList.includes(p)) {
+                return false;
+            }
+            return Reflect.has(target, p);
+        },
+        ownKeys(target) {
+            return Reflect.ownKeys(target).filter((key) => !membersToHideList.includes(key));
+        },
+        getOwnPropertyDescriptor(target, p) {
+            if (membersToHideList.includes(p)) {
+                return undefined;
+            }
+            return Reflect.getOwnPropertyDescriptor(target, p);
+        }
+    });
+}
+
+export function stripCodicons(text: string | undefined) {
+    if (!text) {
+        return text || '';
+    }
+    return text.replace(/\$\([a-z0-9\-]+?\)/gi, '').trim();
+}
+
+export function dedentCode(code: string) {
+    const lines = code.split('\n');
+    const firstNonEmptyLine = lines.find((line) => line.trim().length > 0 && !line.trim().startsWith('#'));
+    if (firstNonEmptyLine) {
+        const leadingSpaces = firstNonEmptyLine.match(/^\s*/)![0];
+        return lines
+            .map((line) => {
+                if (line.startsWith(leadingSpaces)) {
+                    return line.replace(leadingSpaces, '');
+                }
+                return line;
+            })
+            .join('\n');
+    }
+    return code;
+}
