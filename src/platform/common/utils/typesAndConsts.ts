@@ -1,6 +1,7 @@
 
 export const NotebookCellScheme = 'vscode-notebook-cell';
-import type { TextDocument, Uri, Range } from 'vscode';
+import type { TextDocument, Uri, Range, ExtensionContext } from 'vscode';
+import type * as nbformat from '@jupyterlab/nbformat';
 
 export type EnvironmentVariables = Object & Record<string, string | undefined>;
 
@@ -68,8 +69,56 @@ export type Resource = Uri | undefined
 export interface IDisposable {
     dispose(): void | undefined;
 }
+export type IDisposableRegistry = IDisposable[];
+
 
 export interface ICellRange {
     range: Range;
     cell_type: string;
 }
+
+export const IExtensionContext = Symbol('ExtensionContext');
+export interface IExtensionContext extends ExtensionContext {}
+
+
+export const WIDGET_STATE_MIMETYPE = 'application/vnd.jupyter.widget-state+json';
+export const InteractiveWindowView = 'interactive';
+export const JupyterNotebookView = 'jupyter-notebook';
+export const jupyterLanguageToMonacoLanguageMapping = new Map([
+    ['bash', 'shellscript'],
+    ['c#', 'csharp'],
+    ['f#', 'fsharp'],
+    ['q#', 'qsharp'],
+    ['c++11', 'c++'],
+    ['c++12', 'c++'],
+    ['c++14', 'c++']
+]);
+
+
+
+export interface ICell {
+    uri?: Uri;
+    data: nbformat.ICodeCell | nbformat.IRawCell | nbformat.IMarkdownCell;
+}
+
+export const PYTHON_LANGUAGE = 'python';
+
+
+export namespace Identifiers {
+    export const GeneratedThemeName = 'ipython-theme'; // This needs to be all lower class and a valid class name.
+    export const MatplotLibDefaultParams = '_VSCode_defaultMatplotlib_Params';
+    export const MatplotLibFigureFormats = '_VSCode_matplotLib_FigureFormats';
+    export const DefaultCodeCellMarker = '# %%';
+    export const DefaultCommTarget = 'jupyter.widget';
+    export const ALL_VARIABLES = 'ALL_VARIABLES';
+    export const KERNEL_VARIABLES = 'KERNEL_VARIABLES';
+    export const DEBUGGER_VARIABLES = 'DEBUGGER_VARIABLES';
+    export const PYTHON_VARIABLES_REQUESTER = 'PYTHON_VARIABLES_REQUESTER';
+    export const MULTIPLEXING_DEBUGSERVICE = 'MULTIPLEXING_DEBUGSERVICE';
+    export const RUN_BY_LINE_DEBUGSERVICE = 'RUN_BY_LINE_DEBUGSERVICE';
+    export const REMOTE_URI = 'https://remote/';
+    export const REMOTE_URI_ID_PARAM = 'id';
+    export const REMOTE_URI_HANDLE_PARAM = 'uriHandle';
+    export const REMOTE_URI_EXTENSION_ID_PARAM = 'extensionId';
+}
+export const WIDGET_MIMETYPE = 'application/vnd.jupyter.widget-view+json';

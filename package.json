@@ -133,6 +133,10 @@
 	},
 	"dependencies": {
 		"@vscode/python-extension": "^1.0.5",
-		"uuid": "^9.0.1"
+		"uuid": "^9.0.1",
+        "@c4312/evt": "^0.1.1",
+        "fast-deep-equal": "^2.0.1",
+        "@jupyterlab/nbformat": "3.1.17",
+        "@jupyterlab/services": "6.1.17"
 	}
 }
