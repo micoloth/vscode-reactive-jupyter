@@ -36,15 +36,17 @@ import {scriptCode} from './reactive_python_engine';
 import * as vscode from 'vscode';
 import {v4 as uuidv4} from 'uuid';
 
+import { createDeferred, isPromise } from './platform/common/utils/async';
+import { noop } from './platform/common/utils/misc';
 
 
-export const JVSC_EXTENSION_ID = 'ms-toolsai.jupyter';
-export type INativeInteractiveWindow = { notebookUri: Uri; inputUri: Uri; notebookEditor: NotebookEditor };
-export type InteractiveWindowMode = 'perFile' | 'single' | 'multiple';
-export const PYTHON_LANGUAGE = 'python';
-export const MARKDOWN_LANGUAGE = 'markdown';
+const JVSC_EXTENSION_ID = 'ms-toolsai.jupyter';
+type INativeInteractiveWindow = { notebookUri: Uri; inputUri: Uri; notebookEditor: NotebookEditor };
+type InteractiveWindowMode = 'perFile' | 'single' | 'multiple';
+const PYTHON_LANGUAGE = 'python';
+const MARKDOWN_LANGUAGE = 'markdown';
 
-async function createEditor(
+export async function createEditor(
     preferredController: any,  // : IVSCodeNotebookController | undefined,  // CHANGE: This was originally IVSCodeNotebookController | undefined
     resource: Uri | undefined
 ): Promise<[Uri, NotebookEditor]> {
@@ -72,7 +74,7 @@ async function createEditor(
 }
 
 
-export function getRootFolder() {
+function getRootFolder() {
     const firstWorkspace =
         Array.isArray(workspace.workspaceFolders) && workspace.workspaceFolders.length > 0
             ? workspace.workspaceFolders[0]
@@ -81,8 +83,6 @@ export function getRootFolder() {
 }
 
 
-import { createDeferred, isPromise } from './platform/common/utils/async';
-import { noop } from './platform/common/utils/misc';
 
 /**
  * Use this class to perform updates on all cells.
@@ -100,7 +100,7 @@ import { noop } from './platform/common/utils/misc';
  */
 const pendingCellUpdates = new WeakMap<NotebookDocument, Promise<unknown>>();
 
-export async function chainWithPendingUpdates(
+async function chainWithPendingUpdates(
     document: NotebookDocument,
     update: (edit: WorkspaceEdit) => void | Promise<void>
 ): Promise<boolean> {
@@ -130,7 +130,7 @@ export async function chainWithPendingUpdates(
     return deferred.promise;
 }
 
-export function clearPendingChainedUpdatesForTests() {
+function clearPendingChainedUpdatesForTests() {
     const editor: NotebookEditor | undefined = window.activeNotebookEditor;
     if (editor?.notebook) {
         pendingCellUpdates.delete(editor.notebook);
@@ -149,7 +149,7 @@ import { splitLines } from './platform/common/utils/helpers';
 /**
  * CellMatcher is used to match either markdown or code cells using the regex's provided in the settings.
  */
-export class CellMatcher {
+class CellMatcher {
     public codeExecRegEx: RegExp;
     public markdownExecRegEx: RegExp;
 
@@ -235,20 +235,20 @@ export class CellMatcher {
 import { ICellRange, IDisposable } from './platform/common/utils/typesAndConsts';
 
 // Wraps the vscode CodeLensProvider base class
-export const IDataScienceCodeLensProvider = Symbol('IDataScienceCodeLensProvider');
-export interface IDataScienceCodeLensProvider extends CodeLensProvider {
+const IDataScienceCodeLensProvider = Symbol('IDataScienceCodeLensProvider');
+interface IDataScienceCodeLensProvider extends CodeLensProvider {
     getCodeWatcher(document: TextDocument): ICodeWatcher | undefined;
 }
 
-export type CodeLensPerfMeasures = {
+type CodeLensPerfMeasures = {
     totalCodeLensUpdateTimeInMs: number;
     codeLensUpdateCount: number;
     maxCellCount: number;
 };
 
 // Wraps the Code Watcher API
-export const ICodeWatcher = Symbol('ICodeWatcher');
-export interface ICodeWatcher extends IDisposable {
+const ICodeWatcher = Symbol('ICodeWatcher');
+interface ICodeWatcher extends IDisposable {
     readonly uri: Uri | undefined;
     codeLensUpdated: Event<void>;
     setDocument(document: TextDocument): void;
@@ -285,15 +285,15 @@ export interface ICodeWatcher extends IDisposable {
     gotoPreviousCell(): void;
 }
 
-export const ICodeLensFactory = Symbol('ICodeLensFactory');
-export interface ICodeLensFactory {
+const ICodeLensFactory = Symbol('ICodeLensFactory');
+interface ICodeLensFactory {
     updateRequired: Event<void>;
     createCodeLenses(document: TextDocument): CodeLens[];
     getCellRanges(document: TextDocument): ICellRange[];
     getPerfMeasures(): CodeLensPerfMeasures;
 }
 
-export interface IGeneratedCode {
+interface IGeneratedCode {
     /**
      * 1 based, excluding the cell marker.
      */
@@ -316,25 +316,25 @@ export interface IGeneratedCode {
     hasCellMarker: boolean;
 }
 
-export interface IFileGeneratedCodes {
+interface IFileGeneratedCodes {
     uri: Uri;
     generatedCodes: IGeneratedCode[];
 }
 
-export const IGeneratedCodeStore = Symbol('IGeneratedCodeStore');
-export interface IGeneratedCodeStore {
+const IGeneratedCodeStore = Symbol('IGeneratedCodeStore');
+interface IGeneratedCodeStore {
     clear(): void;
     readonly all: IFileGeneratedCodes[];
     getFileGeneratedCode(fileUri: Uri): IGeneratedCode[];
     store(fileUri: Uri, info: IGeneratedCode): void;
 }
 
-export const IGeneratedCodeStorageFactory = Symbol('IGeneratedCodeStorageFactory');
-export interface IGeneratedCodeStorageFactory {
+const IGeneratedCodeStorageFactory = Symbol('IGeneratedCodeStorageFactory');
+interface IGeneratedCodeStorageFactory {
     getOrCreate(notebook: NotebookDocument): IGeneratedCodeStore;
     get(options: { notebook: NotebookDocument } | { fileUri: Uri }): IGeneratedCodeStore | undefined;
 }
-export type InteractiveCellMetadata = {
+type InteractiveCellMetadata = {
     interactiveWindowCellMarker?: string;
     interactive: {
         uristring: string;
@@ -345,7 +345,7 @@ export type InteractiveCellMetadata = {
     id: string;
 };
 
-export interface IInteractiveWindowCodeGenerator extends IDisposable {
+interface IInteractiveWindowCodeGenerator extends IDisposable {
     reset(): void;
     generateCode(
         metadata: Pick<InteractiveCellMetadata, 'interactive' | 'id' | 'interactiveWindowCellMarker'>,
@@ -355,8 +355,8 @@ export interface IInteractiveWindowCodeGenerator extends IDisposable {
     ): Promise<IGeneratedCode | undefined>;
 }
 
-export const ICodeGeneratorFactory = Symbol('ICodeGeneratorFactory');
-export interface ICodeGeneratorFactory {
+const ICodeGeneratorFactory = Symbol('ICodeGeneratorFactory');
+interface ICodeGeneratorFactory {
     getOrCreate(notebook: NotebookDocument): IInteractiveWindowCodeGenerator;
     get(notebook: NotebookDocument): IInteractiveWindowCodeGenerator | undefined;
 }
@@ -379,10 +379,9 @@ export async function addNotebookCell(code: string, file: Uri, line: number, not
     // const interactiveWindowCellMarker = this.cellMatcher.getFirstMarker(code);
     // TODO ^
     const strippedCode = code;
-    const isMarkdown = true;
+    const isMarkdown = false;
     const cellMatcher = new CellMatcher();  // CHANGE: This was originally this.cellMatcher = new CellMatcher(this.configuration.getSettings(this.owningResource));
     const interactiveWindowCellMarker = cellMatcher.getFirstMarker(code);
-
 
     // IDEA: this.owner is a property of InteractiveWindow, which receives it as undefined or this.document?.uri <<< (ie the editor's uri)
 
@@ -400,7 +399,6 @@ export async function addNotebookCell(code: string, file: Uri, line: number, not
         lineIndex: line,
         originalSource: code
     };
-
 
     const metadata: InteractiveCellMetadata = {
         interactiveWindowCellMarker,

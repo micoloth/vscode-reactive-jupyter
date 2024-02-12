@@ -385,10 +385,10 @@ export class CellExecutionMessageHandler implements IDisposable {
         private readonly controller: IKernelController,
         private readonly context: IExtensionContext,
         private readonly formatters: ITracebackFormatter[],
-        private readonly kernel: Kernel.IKernelConnection,
-        private readonly request:
-            | Kernel.IShellFuture<KernelMessage.IExecuteRequestMsg, KernelMessage.IExecuteReplyMsg>
-            | undefined,
+        // private readonly kernel: Kernel.IKernelConnection,
+        // private readonly request:
+        //     | Kernel.IShellFuture<KernelMessage.IExecuteRequestMsg, KernelMessage.IExecuteReplyMsg>
+        //     | undefined,
         cellExecution: NotebookCellExecution,
         executionMessageId: string
     ) {
@@ -417,32 +417,32 @@ export class CellExecutionMessageHandler implements IDisposable {
         // We're in all messages.
         // When using the `interact` function in Python, we can get outputs from comm messages even before execution has completed.
         // See https://github.com/microsoft/vscode-jupyter/issues/9503 for more information on why we need to monitor anyMessage and iopubMessage signals.
-        this.kernel.anyMessage.connect(this.onKernelAnyMessage, this);
-        this.kernel.iopubMessage.connect(this.onKernelIOPubMessage, this);
+        // this.kernel.anyMessage.connect(this.onKernelAnyMessage, this);
+        // this.kernel.iopubMessage.connect(this.onKernelIOPubMessage, this);
 
-        if (request) {
-            request.onIOPub = () => {
-                // Cell has been deleted or the like.
-                if (this.cell.document.isClosed && !this.completedExecution) {
-                    request.dispose();
-                }
-            };
-            request.onReply = (msg: KernelMessage.IShellControlMessage) => {  // CHANGE: There was no type for msg
-                // Cell has been deleted or the like.
-                if (this.cell.document.isClosed) {
-                    request.dispose();
-                    return;
-                }
-                this.handleReply(msg);
-            };
-            request.onStdin = this.handleInputRequest.bind(this);
-            request.done
-                .finally(() => {
-                    this.completedExecution = true;
-                    this.endCellExecution();
-                })
-                .catch(noop);
-        }
+        // if (request) {
+        //     request.onIOPub = () => {
+        //         // Cell has been deleted or the like.
+        //         if (this.cell.document.isClosed && !this.completedExecution) {
+        //             request.dispose();
+        //         }
+        //     };
+        //     request.onReply = (msg: KernelMessage.IShellControlMessage) => {  // CHANGE: There was no type for msg
+        //         // Cell has been deleted or the like.
+        //         if (this.cell.document.isClosed) {
+        //             request.dispose();
+        //             return;
+        //         }
+        //         this.handleReply(msg);
+        //     };
+        //     request.onStdin = this.handleInputRequest.bind(this);
+        //     request.done
+        //         .finally(() => {
+        //             this.completedExecution = true;
+        //             this.endCellExecution();
+        //         })
+        //         .catch(noop);
+        // }
     }
     /**
      * This method is called when all execution has been completed (successfully or failed).
@@ -463,12 +463,12 @@ export class CellExecutionMessageHandler implements IDisposable {
         // The new stream ends up getting added as a new output (instead of appending to existing output),
         // this happens as the previous stream has been cleared (if we call clearLastUsedStreamOutput).
         // Thats why we never clear the last stream when disposing this class for restored executions (request === undefined).
-        if (this.request) {
-            this.clearLastUsedStreamOutput();
-        }
+        // if (this.request) {
+        //     this.clearLastUsedStreamOutput();
+        // }
+        // this.kernel.anyMessage.disconnect(this.onKernelAnyMessage, this);
+        // this.kernel.iopubMessage.disconnect(this.onKernelIOPubMessage, this);
         this.execution = undefined;
-        this.kernel.anyMessage.disconnect(this.onKernelAnyMessage, this);
-        this.kernel.iopubMessage.disconnect(this.onKernelIOPubMessage, this);
         this._onErrorHandlingIOPubMessage.dispose();
     }
     /**
@@ -486,9 +486,9 @@ export class CellExecutionMessageHandler implements IDisposable {
         // The new stream ends up getting added as a new output (instead of appending to existing output),
         // this happens as the previous stream has been cleared (if we call clearLastUsedStreamOutput).
         // Thats why we never clear the last stream when disposing this class for restored executions (request === undefined).
-        if (this.request) {
-            this.clearLastUsedStreamOutput();
-        }
+        // if (this.request) {
+        //     this.clearLastUsedStreamOutput();
+        // }
         this.execution = undefined;
         this._completed.resolve();
     }
@@ -499,7 +499,7 @@ export class CellExecutionMessageHandler implements IDisposable {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const jupyterLab = require('@jupyterlab/services') as typeof import('@jupyterlab/services');
 
-        if (!this.request && direction === 'recv') {
+        if (direction === 'recv') {  // CHANGE: There was !this.request &&
             const parentMsgId = getParentHeaderMsgId(msg);
             // In @jupyterlab/services/lib/kernel/future.js a request is marked as completed when we receive a status message with execution_state = 'idle' and have received a reply in shell chanel.
             if (
@@ -1045,7 +1045,7 @@ export class CellExecutionMessageHandler implements IDisposable {
                     cancelToken.token
                 )
                 .then((v) => {
-                    this.kernel.sendInputReply({ value: v || '', status: 'ok' });
+                    // this.kernel.sendInputReply({ value: v || '', status: 'ok' });
                 }, noop);
 
             this.prompts.delete(cancelToken);
@@ -1157,18 +1157,18 @@ export class CellExecutionMessageHandler implements IDisposable {
         // If we're resuming a previously executing cell (e.g. by reloading vscode),
         // & the last output is an output with the same stream output items then use that (instead of creating a whole new output).
         // Because with streams we always append to the existing output (unless we have different mime types or different stream types)
-        if (!this.request && !this.streamsReAttachedToExecutingCell && !this.lastUsedStreamOutput) {
-            if (
-                this.cell.outputs.length &&
-                this.cell.outputs[this.cell.outputs.length - 1].items.length >= 1 &&
-                this.cell.outputs[this.cell.outputs.length - 1].items.every((item) => item.mime === outputName)
-            ) {
-                this.lastUsedStreamOutput = {
-                    output: this.cell.outputs[0],
-                    stream: msg.content.name
-                };
-            }
-        }
+        // if (!this.request && !this.streamsReAttachedToExecutingCell && !this.lastUsedStreamOutput) {
+        //     if (
+        //         this.cell.outputs.length &&
+        //         this.cell.outputs[this.cell.outputs.length - 1].items.length >= 1 &&
+        //         this.cell.outputs[this.cell.outputs.length - 1].items.every((item) => item.mime === outputName)
+        //     ) {
+        //         this.lastUsedStreamOutput = {
+        //             output: this.cell.outputs[0],
+        //             stream: msg.content.name
+        //         };
+        //     }
+        // }
         this.streamsReAttachedToExecutingCell = true;
 
         // Clear output if waiting for a clear
