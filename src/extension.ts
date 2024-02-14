@@ -55,8 +55,18 @@ type AnnotatedRange = {
 // UTILS
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
+// An Error type:
+type ExecutionError = {
+    name: string;
+    message: string;
+    stack: string;
+};
 
-async function* executeCodeStreamInKernel(code: string, kernel: Kernel, output_channel: OutputChannel | null) {
+function isExecutionError(obj: any): obj is ExecutionError {
+    return obj && (obj as ExecutionError).stack !== undefined; // replace 'errorProperty' with a unique property of ExecutionError
+}
+
+async function* executeCodeStreamInKernel(code: string, kernel: Kernel, output_channel: OutputChannel | null): AsyncGenerator<string | ExecutionError, void, unknown> {
     /*
     Currently, it ALWAYS logs a line (for the user), and it returns the result if it is NOT AN ERROR, else Undefined. 
     If you need Debugging traces, use console.log(). (currently it logs errors)
@@ -78,7 +88,8 @@ async function* executeCodeStreamInKernel(code: string, kernel: Kernel, output_c
                         output_channel.appendLine(`Error executing code ${error.name}: ${error.message},/n ${error.stack}`);
                     }
                     console.log(`Error executing code ${error.name}: ${error.message},/n ${error.stack}`);
-                    yield undefined;
+                    // new ExecutionError(error.name, error.message, error.stack):
+                    yield { name: error.name, message: error.message, stack: error.stack } as ExecutionError;
                 } else {
                     if (output_channel) {
                         output_channel.appendLine(`${outputItem.mime} Output: ${decoded}`);
@@ -105,10 +116,13 @@ async function* executeCodeStreamInKernel(code: string, kernel: Kernel, output_c
 async function executeCodeInKernel(code: string, kernel: Kernel, output_channel: OutputChannel | null) {
     let result = '';
     for await (const output of executeCodeStreamInKernel(code, kernel, output_channel)) {
-        if (output === undefined) {
-            return undefined;
+        // If undefined or a ExecutionError:
+        if (isExecutionError(output)) {
+            return output;
         }
-        result += output;
+        else if (output !== undefined) {
+            result += output;
+        }
     }
     return result;
 }
@@ -186,7 +200,7 @@ async function safeExecuteCodeInInteractiveWindow(
 
     let notebookAndKernel = await getNotebookAndKernel(globalState, editor, true);
     if (!notebookAndKernel) {
-        window.showErrorMessage("Lost Connection to this editor's Notebook. Please initialize the extension with the command: 'Initialize Reactive Python' or the CodeLens at the top");
+        window.showErrorMessage("Lost Connection to this editor's Notebook. ", "Please initialize the extension with the command", " 'Initialize Reactive Python' or the CodeLens at the top");
         updateState(globalState, editor, State.initializable_messaged);
         return;
     }
@@ -228,7 +242,6 @@ async function safeExecuteCodeInKernelForInitialization(
     globalState: Map<string, string>
 ): Promise<boolean> {
     // It's SLIGHTLY different from the above one... 
-    displayInitializationMessageIfNeeded(globalState, editor);
     if (getState(globalState, editor) !== State.kernel_available) { return false; }
     if (!checkSettings(globalState, editor)) { return false; }
 
@@ -241,7 +254,7 @@ async function safeExecuteCodeInKernelForInitialization(
     let [notebook, kernel] = notebookAndKernel;
     updateState(globalState, editor, State.instantialization_started);
     const result = await executeCodeInKernel(command, kernel, output);
-    if (result) {
+    if (!isExecutionError(result)) {
         updateState(globalState, editor, State.extension_available);
         window.showInformationMessage('Reactive Python is ready to use');
         return true;
@@ -336,8 +349,8 @@ const stateTransitions: Map<State, State[]> = new Map([
     [State.implicit_execution_started, [State.extension_available]],
 ]);
 
-function getState(globalState: Map<string, string>, editor: TextEditor): State {
-    return globalState.get(editorConnectionStateKey(editor.document.uri.toString())) as State || State.settings_not_ok;
+function getState(globalState: Map<string, string>, editor: TextEditor): State | boolean {
+    return (globalState.get(editorConnectionStateKey(editor.document.uri.toString())) as State) || false;
 }
 
 function updateState(globalState: Map<string, string>, editor: TextEditor, newState_: string) {
@@ -374,9 +387,9 @@ function checkSettings(globalState: Map<string, string>, editor: TextEditor,) {
 
     // const setting = vscode.workspace.getConfiguration('jupyter').get<string>('interactiveWindow.viewColumn');
     const creationMode = vscode.workspace.getConfiguration('jupyter').get<string>('interactiveWindow.creationMode');
-    const shiftEnter = vscode.workspace.getConfiguration('jupyter').get<string>('interactiveWindow.textEditor.executeSelection');
+    const shiftEnter = vscode.workspace.getConfiguration('jupyter').get<boolean>('interactiveWindow.textEditor.executeSelection');
     const perFileMode = creationMode && ['perFile', 'perfile'].includes(creationMode);
-    const shiftEnterOff = shiftEnter && shiftEnter === 'false';
+    const shiftEnterOff = shiftEnter === false;
 
     if (perFileMode && shiftEnterOff && getState(globalState, editor) === State.settings_not_ok) {
         updateState(globalState, editor, State.initializable);
@@ -384,14 +397,17 @@ function checkSettings(globalState: Map<string, string>, editor: TextEditor,) {
     }
     else if (!perFileMode || !shiftEnterOff) {
         updateState(globalState, editor, State.settings_not_ok);
-        window.showErrorMessage('Reactive Python: To use Reactive Python, please set the Jupyter extension settings to: \n - "jupyter.interactiveWindow.creationMode": "perFile" \n - "jupyter.interactiveWindow.textEditor.executeSelection": false');
+        window.showErrorMessage('Reactive Python: To use Reactive Python', 'please set the Jupyter extension settings to:', ' - "jupyter.interactiveWindow.creationMode": "perFile" ', ' - "jupyter.interactiveWindow.textEditor.executeSelection": false');
         return false;
+    }
+    else {
+        return true;
     }
 }
 
 function displayInitializationMessageIfNeeded(globalState: Map<string, string>, editor: TextEditor) {
     if (getState(globalState, editor) === State.initializable) {
-        window.showInformationMessage("Reactive Python: Initialize the extension on this File with the command: 'Initialize Reactive Python' or the CodeLens at the top");
+        window.showInformationMessage("Reactive Python: Initialize the extension on this File ", "with the command: 'Initialize Reactive Python' or the CodeLens at the top");
         updateState(globalState, editor, State.initializable_messaged);
     }
 }
@@ -428,7 +444,7 @@ async function getKernelNotebook(document: NotebookDocument): Promise<Kernel | u
     });
 }
 
-function isThereANewNotebook(oldNotebooks: readonly NotebookDocument[], newNotebooks: readonly NotebookDocument[]): NotebookDocument | undefined {
+function isThereANewNotebook(oldNotebooks: readonly CachedNotebookDocument[], newNotebooks: readonly NotebookDocument[]): NotebookDocument | undefined {
     // This returns a notebook, if either there is in BOTH OLD AND NEW, but in New it has ONE MORE CELL.
     // Or it is ONLY IN NEW, and it has at least one cell.
     let newNotebook: NotebookDocument | undefined = undefined;
@@ -452,7 +468,7 @@ async function getNotebookAndKernel(globalState: Map<string, string>, editor: Te
     let notebook = iWsWCorrectUri[0];
     let kernel = await getKernelNotebook(notebook);
     if (!kernel) {
-        if (notify) { window.showInformationMessage("Lost connection to this editor's Python Kernel. Please initialize it with the command: 'Initialize Reactive Python' or the CodeLens at the top ") }
+        if (notify) { window.showInformationMessage("Lost connection to this editor's Python Kernel. ", "Please initialize it with the command ", "'Initialize Reactive Python' or the CodeLens at the top ") }
         return undefined;
     }
     return [notebook, kernel];
@@ -472,14 +488,16 @@ const editorConnectionStateKey = (editorUri: string) => 'state' + editorUri;
 
 const welcomeText = "# Welcome to Reactive Python";
 
-
+// Type struct with the cellCount field, called CachedNotebookDocument:
+type CachedNotebookDocument = { cellCount: number, uri: Uri };
+// NotebookDocument to CachedNotebookDocument:
+const toMyNotebookDocument = (doc: NotebookDocument): CachedNotebookDocument => ({ cellCount: doc.cellCount, uri: doc.uri });
 
 
 async function initializeInteractiveWindowAndKernel(globalState: Map<string, string>, editor: TextEditor) {
 
-    let uri =
-        // Check settings:
-        checkSettings(globalState, editor);
+    // Check settings:
+    checkSettings(globalState, editor);
 
     // If not in state initializable or initializable_messaged, return:
     let currentState = getState(globalState, editor)
@@ -494,7 +512,7 @@ async function initializeInteractiveWindowAndKernel(globalState: Map<string, str
     let n_attempts = 5;
     while (n_attempts > 0) {
 
-        const notebookDocuments = vscode.workspace.notebookDocuments;
+        const notebookDocuments: CachedNotebookDocument[] = vscode.workspace.notebookDocuments.map(toMyNotebookDocument);
         // Wreck some Havoc: This should ALWAYS RESULT IN A RUNNING KERNEL, AND ALSO A NEW CELL SOMEWHERE, EVENTUALLY. This is the idea, at least...
         await vscode.commands.executeCommand('jupyter.execSelectionInteractive', welcomeText);
         // Other things I tried:
@@ -510,6 +528,8 @@ async function initializeInteractiveWindowAndKernel(globalState: Map<string, str
         if (!newNotebook) { n_attempts -= 1; continue }
 
         globalState.set(editorToIWKey(editor.document.uri.toString()), newNotebook.uri.toString());
+        // Sleep 3 secs:
+        await new Promise((resolve) => setTimeout(resolve, 3000));
         let okFoundKernel = await getNotebookAndKernel(globalState, editor,);
         if (!okFoundKernel) { n_attempts -= 1; continue }
         updateState(globalState, editor, State.kernel_found);
@@ -754,7 +774,7 @@ const getCurrentRangesFromPython = async (
     // console.log('3: Here we are: ', command)
     const result = await safeExecuteCodeInKernel(command, editor, output, globalState);
     // console.log('4: Result from Python: ' + result);
-    if (result === undefined || result == '[]') return;
+    if (result === undefined || result == '[]' || isExecutionError(result)) return;
     if (to_launch_compute) {
         console.log('Result from Python to compute: ' + result);
     }
@@ -970,7 +990,9 @@ export function createPreparePythonEnvForReactivePython(globalState: Map<string,
         let editor = window.activeTextEditor;
         if (!editor) { return; }
 
-        if ([State.initializable, State.initializable_messaged].includes(getState(globalState, editor))) {
+        if (getState(globalState, editor) == false) { globalState.set(editorConnectionStateKey(editor.document.uri.toString()), State.initializable); }
+
+        if (getState(globalState, editor) == (State.initializable) || getState(globalState, editor) == (State.initializable_messaged)) {
             let success = await initializeInteractiveWindowAndKernel(globalState, editor);
             if (!success) { return; }
         }
@@ -1041,7 +1063,6 @@ const Context = new Proxy<typeof currentContext>(currentContext, handler);
 export const globalState: Map<string, string> = new Map();
 
 export function activate(context: ExtensionContext) {
-    console.log('>>>>  BRO:.....  SO???');
     const jupyterExt = extensions.getExtension<Jupyter>('ms-toolsai.jupyter');
     if (!jupyterExt) {
         throw new Error('The Jupyter Extension not installed. Please install it and try again.');
