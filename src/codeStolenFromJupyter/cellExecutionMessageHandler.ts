@@ -2,8 +2,8 @@
 // Licensed under the MIT License.
 
 // import {equal as fastDeepEqual} from 'fast-deep-equal';
-import equal = require("fast-deep-equal")
-import fastDeepEqual = require('fast-deep-equal');
+// import fastDeepEqual = require('fast-deep-equal');
+import * as fastDeepEqual from 'fast-deep-equal';
 import type * as nbformat from '@jupyterlab/nbformat';
 import type * as KernelMessage from '@jupyterlab/services/lib/kernel/messages';
 import {

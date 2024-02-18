@@ -31,7 +31,6 @@ import { Jupyter, Kernel, JupyterServerCommandProvider } from '@vscode/jupyter-e
 import path = require('path');
 import { TextDecoder } from 'util';
 
-import {scriptCode} from './reactive_python_engine';
 
 import * as vscode from 'vscode';
 import {v4 as uuidv4} from 'uuid';
