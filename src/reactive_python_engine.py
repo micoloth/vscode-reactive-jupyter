@@ -1,12 +1,12 @@
 
 import ast
-import dataclasses 
-import functools
-from collections import abc
-import hashlib
 import json
-from typing import Any, Dict, List, Optional, Set, Union, Tuple
+import hashlib
 import itertools
+import functools
+import dataclasses 
+from collections import abc
+from typing import Any, Dict, List, Optional, Set, Union, Tuple
 
 
 class ReactivePythonDagBuilderUtils__():
@@ -530,12 +530,13 @@ class ReactivePythonDagBuilderUtils__():
             tree_ast: ast.AST
             text: str  # Honestly this is only used for debugging ...
             input_vars: Set[str]  # Represents the variables that need to be defined elsewhere to be used in the eval of this node
-            output_vars: Set[str]  # Represents the variables that are defined in this node (either via assignement or function defeinition)  and can be used later
-            errored_input_vars: Set[str]  # Represents the variables that are defined in this node (either via assignement or function defeinition)  and can be used later
-            errored_output_vars: Set[str]  # Represents the variables that are defined in this node (either via assignement or function defeinition)  and can be used later
+            output_vars: Set[str]  # Represents the variables that are defined in this node (either via assignment or function definition)  and can be used later
+            errored_input_vars: Set[str]  # Represents the variables that are defined in this node (either via assignment or function definition)  and can be used later
+            errored_output_vars: Set[str]  # Represents the variables that are defined in this node (either via assignment or function definition)  and can be used later
             stale: bool = False
+            depends_on_stale_nodes_not_selected: bool = False  # Helper var used in a specific function to do a specific thing, it's just handy to have it here directly
         
-        def node_repr_hash(node: DagNode):
+        def node_repr_hash(node):
             repr = f"{node['lineno']}-{node['end_lineno']}: {node['text'].strip()}"
             # Hash this string to some 8-digit number:
             return int(hashlib.sha256(repr.encode('utf-8')).hexdigest(), 16) % 10**8
@@ -779,7 +780,7 @@ class ReactivePythonDagBuilderUtils__():
                 # If there is no matching node in the old_dag, or the matching node is stale, it's stale:
                 if new_node_to_old.get(new_node) is None or old_dag.nodes[new_node_to_old[new_node]]['stale']:
                     new_dag.nodes[new_node]['stale'] = True; continue
-            
+
             # Additional step: For all variables that are outputted by a stale node, mark all the nodes that use that variable as stale FROM THE BEGINNING:
             # If the assignements always use a new name, as it should be in a functional setting, this is not necessary.
             # But, if the same variable is reassigned, then it is necessary to mark all the nodes that use that variable as stale.
@@ -788,10 +789,9 @@ class ReactivePythonDagBuilderUtils__():
                 if node == '_START_': 
                     continue
                 node_data = new_dag.nodes[node]
-                node_vars = node_data['input_vars'] | node_data['errored_input_vars'] | node_data['output_vars'] | node_data['errored_output_vars']
+                node_vars = node_data['input_vars'] | node_data['errored_input_vars'] # | node_data['output_vars'] | node_data['errored_output_vars']
                 node_parents = list(new_dag.predecessors(node))
-                if (any(var in all_outputted_stale_vars for var in node_vars)
-                    or any(new_dag.nodes[parent]['stale'] for parent in node_parents)):
+                if any(var in all_outputted_stale_vars for var in node_vars) or any(new_dag.nodes[parent]['stale'] for parent in node_parents):
                     node_data['stale'] = True
         
 
@@ -836,7 +836,7 @@ class ReactivePythonDagBuilderUtils__():
             return [
                 node['lineno'], 
                 node['end_lineno'], 
-                "outdated" if (node['stale']) else "synced",
+                "synced" if (not node['stale']) else "outdated" if (not node.get('depends_on_stale_nodes_not_selected')) else 'dependsonotherstalecode',
                 "current" if is_current else "",
                 node['text'] if include_code else "",
                 node_repr_hash(node) if include_code else ""
@@ -877,6 +877,19 @@ class ReactivePythonDagBuilderUtils__():
                     nodes_to_return = [n for n in topological_sort(current_dag) if n in set(nodes_to_return) and current_dag.nodes[n]['text'] != '_START_']
                 else:
                     nodes_to_return = [n for n in nodes_to_return if current_dag.nodes[n]['text'] != '_START_']
+
+                # Additional step: If get_downstream, you want to identify which codes are stale but actually depend 
+                # on other stale code that has NOTHING to do with current_line, and so will not be executed..
+                if get_downstream and stale_only:
+                    # Remove the ones which depend on stale nodes that are Not in nodes_to_returm by setting their depends_on_stale_nodes_not_selected to True:
+                    for n in nodes_to_return:
+                        depends_on_stale_nodes_not_selected = False
+                        for pred in current_dag.predecessors(n):
+                            is_selected = pred in nodes_to_return  # Yes, it's quadratic. This is probably the only place where this code is quadratic?
+                            if (current_dag.nodes[pred].get('text') != '_START_'
+                                and ((not is_selected and current_dag.nodes[pred].get('stale')) or is_selected and current_dag.nodes[pred].get('depends_on_stale_nodes_not_selected'))):
+                                depends_on_stale_nodes_not_selected = True   
+                        current_dag.nodes[n]['depends_on_stale_nodes_not_selected'] = depends_on_stale_nodes_not_selected
             
             result = [pr(current_dag.nodes[n], is_current=(n==current_node), include_code=include_code) for n in nodes_to_return]
             result = json.dumps(result)
@@ -2281,6 +2294,5 @@ class ReactivePythonDagBuilderUtils__():
         return DiGraph, topological_sort, ancestors, descendants, has_path
 
 reactive_python_dag_builder_utils__ = ReactivePythonDagBuilderUtils__()
-
 
 

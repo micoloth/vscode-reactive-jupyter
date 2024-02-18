@@ -8,27 +8,27 @@
 //     file.write(f'export const scriptCode = `\n{content}\n`;')
 
 import {
-    CancellationTokenSource,
-    Disposable,
-    ExtensionContext,
-    NotebookCellOutputItem,
-    OutputChannel,
-    QuickPickItem,
-    commands,
-    extensions,
-    languages,
-    window,
+    Uri,
     Range,
+    window,
+    Position,
+    languages,
     workspace,
     TextEditor,
-    NotebookDocument,
-    Position,
-    Selection,
-    CodeLensProvider,
-    Uri,
-    NotebookEditor,
-    ViewColumn,
+    extensions,
     NotebookCell,
+    OutputChannel,
+    ExtensionContext,
+    NotebookDocument,
+    NotebookCellOutputItem,
+    CancellationTokenSource,
+    commands,
+    Selection,
+    ViewColumn,
+    Disposable,
+    QuickPickItem,
+    NotebookEditor,
+    CodeLensProvider,
     NotebookCellOutput,
     NotebookCellExecutionSummary
 } from 'vscode';
@@ -82,7 +82,7 @@ const textDecoder = new TextDecoder();
 
 // Get if Mime is an Error:
 
-const errorMimeTypes = ['application/vnd.code.notebook.error', 'application/vnd.code.notebook.stderr'];
+const errorMimeTypes = ['application/vnd.code.notebook.error']; // 'application/vnd.code.notebook.stderr' ? But like, TQDM outputs this even tho it succedes..
 
 
 // An Error type:
@@ -102,8 +102,7 @@ async function* executeCodeStreamInKernel(code: string, kernel: Kernel, output_c
     If you need Debugging traces, use console.log(). (currently it logs errors)
     */
 
-    // 	// output_channel.appendLine(`>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`);
-    // 	// output_channel.appendLine(`Executing code against kernel ${code}`);
+    if (output_channel) {output_channel.appendLine(`Executing code against kernel ${code}`);}
     const tokenSource = new CancellationTokenSource();
     try {
         for await (const output of kernel.executeCode(code, tokenSource.token)) {
@@ -112,28 +111,21 @@ async function* executeCodeStreamInKernel(code: string, kernel: Kernel, output_c
                 if (outputItem.mime === ErrorMimeType) {
                     const error = JSON.parse(decoded) as Error;
                     if (output_channel) {
-                        // output_channel.appendLine(`Error executing code ${error.name}: ${error.message},/n ${error.stack}`);
+                        if (output_channel) {output_channel.appendLine(`Error executing code ${error.name}: ${error.message},/n ${error.stack}`);}
                     }
                     console.log(`Error executing code ${error.name}: ${error.message},/n ${error.stack}`);
-                    // new ExecutionError(error.name, error.message, error.stack):
                     yield { name: error.name, message: error.message, stack: error.stack } as ExecutionError;
                 } else {
                     if (output_channel) {
-                        // output_channel.appendLine(`${outputItem.mime} Output: ${decoded}`);
+                        if (output_channel) {output_channel.appendLine(`${outputItem.mime} Output: ${decoded}`);}
                     }
                     yield decoded;
                     if (output_channel) {
-                        // Remove one line from the output channel:
-                        // output_channel.appendLine('Code execution completed');
+                        if (output_channel) {output_channel.appendLine('Code execution completed');}
                     }
                 }
             }
         }
-        // 		// output_channel.appendLine('Code execution completed');
-        // 		// output_channel.appendLine(`<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<`);
-        // 	} catch (ex){
-        // 		// output_channel.appendLine(`Code execution failed with an error '${ex}'`);
-        // 		// output_channel.appendLine(`<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<`);
     }
     finally {
         tokenSource.dispose();
@@ -143,7 +135,6 @@ async function* executeCodeStreamInKernel(code: string, kernel: Kernel, output_c
 async function executeCodeInKernel(code: string, kernel: Kernel, output_channel: OutputChannel | null): Promise<string | ExecutionError> {
     let result = '';
     for await (const output of executeCodeStreamInKernel(code, kernel, output_channel)) {
-        // If undefined or a ExecutionError:
         if (isExecutionError(output)) {
             return output;
         }
@@ -161,7 +152,6 @@ enum CellState {
 }
 
 function getCellState(cell: NotebookCell): CellState {
-    // I ASSUME that when the cell is not finished yet, it will have no ExecutionSummary... Who knows if it's true
     console.log('> CELL: ', cell.executionSummary);
     if (cell.executionSummary && cell.executionSummary.success !== undefined) { return cell.executionSummary.success ? CellState.Success : CellState.Error; }
     else { return CellState.Undefined; }
@@ -213,7 +203,7 @@ async function executeCodeInInteractiveWindow(
     }
 
     if (!cell) {
-        window.showErrorMessage('Failed to execute the code in the Interactive Window: No matching cell was identified');
+        window.showErrorMessage('Reactive Python: Failed to execute the code in the Interactive Window: No matching cell was identified');
         console.log(">>Inteactive Execution Result for ", text, ": -> false (case 1)")
         return false;
     }
@@ -230,6 +220,7 @@ async function executeCodeInInteractiveWindow(
                 for (let j = 0; j <  cell.outputs[i].items.length; j++) {
                     if (errorMimeTypes.includes( cell.outputs[i].items[j].mime)) { 
                         console.log(">>Inteactive Execution Result for ", text, ": -> false (case 2)")
+                        console.log(' In Particular: ', cell.outputs[i].items[j].mime, cell.outputs[i].items[j].data);
                         return false; 
                     }
                 }
@@ -244,7 +235,7 @@ async function executeCodeInInteractiveWindow(
         await new Promise((resolve) => setTimeout(resolve, 250));
     }
 
-    window.showErrorMessage('Failed to execute the code in the Interactive Window: The cell did not finish executing');
+    window.showErrorMessage('Reactive Python: Failed to execute the code in the Interactive Window: The cell did not finish executing');
     console.log(">>Inteactive Execution Result for ", text, ": -> false (case 5)")
     return false;
 
@@ -282,7 +273,7 @@ async function safeExecuteCodeInInteractiveWindow(
 
     let notebookAndKernel = await getNotebookAndKernel(globalState, editor, true);
     if (!notebookAndKernel) {
-        window.showErrorMessage("Lost Connection to this editor's Notebook. ", "Please initialize the extension with the command", " 'Initialize Reactive Python' or the CodeLens at the top");
+        window.showErrorMessage("Reactive Python: Lost Connection to this editor's Notebook. Please initialize the extension with the command 'Initialize Reactive Python' or the CodeLens at the top");
         updateState(globalState, editor, State.initializable_messaged);
         return;
     }
@@ -307,13 +298,13 @@ async function safeExecuteCodeInKernel(
 
     let notebookAndKernel = await getNotebookAndKernel(globalState, editor, true);
     if (!notebookAndKernel) {
-        window.showErrorMessage("Lost Connection to this editor's Kernel. Please initialize the extension with the command: 'Initialize Reactive Python' or the CodeLens at the top");
+        window.showErrorMessage("Reactive Python: Lost Connection to this editor's Kernel. Please initialize the extension with the command: 'Initialize Reactive Python' or the CodeLens at the top");
         updateState(globalState, editor, State.initializable_messaged);
         return;
     }
     let [notebook, kernel] = notebookAndKernel;
     updateState(globalState, editor, State.implicit_execution_started);
-    const result = await executeCodeInKernel(command, kernel, output);
+    const result = await executeCodeInKernel(command, kernel, null);  // output ?
     if (return_to_initial_state) { updateState(globalState, editor, expected_initial_state); }
     return result;
 }
@@ -329,20 +320,20 @@ async function safeExecuteCodeInKernelForInitialization(
 
     let notebookAndKernel = await getNotebookAndKernel(globalState, editor, true);
     if (!notebookAndKernel) {
-        window.showErrorMessage("Kernel Initialization succeeded, but we lost it already... Please try again.");
+        window.showErrorMessage("Reactive Python: Kernel Initialization succeeded, but we lost it already... Please try again.");
         updateState(globalState, editor, State.initializable_messaged);
         return false;
     }
     let [notebook, kernel] = notebookAndKernel;
     updateState(globalState, editor, State.instantialization_started);
-    const result = await executeCodeInKernel(command, kernel, output);
+    const result = await executeCodeInKernel(command, kernel, null);  // output ?
     if (!isExecutionError(result)) {
         updateState(globalState, editor, State.extension_available);
-        window.showInformationMessage('Reactive Python is ready to use');
+        window.showInformationMessage('Reactive Python: The extension is ready to use.');
         return true;
     } else {
         updateState(globalState, editor, State.kernel_available);
-        window.showErrorMessage('The Reactive Python code could not be executed in the Python Kernel. This is bad...');
+        window.showErrorMessage('Reactive Python: The initialization code could not be executed in the Python Kernel. This is bad...');
         return false;
     }
 }
@@ -369,6 +360,14 @@ async function queueComputation(
         // console.log('---- >>>> RES DEL: ', resDel);
         for (let range of current_ranges) {
             if (!range.text) break;
+
+            if (range.state === 'dependsonotherstalecode') {
+                // Display a window explaining the problem, and DONT execute it:
+                // Get tonly the first 100 characters of the text:
+                let text = range.text.slice(0, 100);
+                window.showErrorMessage('Reactive Python: ' + text + ' depends on other code that is outdated. Please update the other code first.');
+                continue;
+            }
             // console.log('>> TEXT: ', range.text);
 
             let res = await safeExecuteCodeInInteractiveWindow(range.text, activeTextEditor, output, globalState);
@@ -377,7 +376,7 @@ async function queueComputation(
             // console.log('>> updateRange_command: ', updateRange_command);
             const update_result = await safeExecuteCodeInKernel(getSyncRangeCommand(range), activeTextEditor, output, globalState);
             if (!update_result) {
-                vscode.window.showErrorMessage("Failed to update the range's state in Python: " + range.hash + " -- " + update_result);
+                vscode.window.showErrorMessage("Reactive Python: Failed to update the range's state in Python: " + range.hash + " -- " + update_result);
                 break;
             }
             // Trigger a onDidChangeTextEditorSelection event:
@@ -387,11 +386,14 @@ async function queueComputation(
             if (refreshed_ranges) {
                 updateDecorations(activeTextEditor, refreshed_ranges);
             }
+            else {
+                updateDecorations(activeTextEditor, []);
+            }
         }
     }
     const update_result = await safeExecuteCodeInKernel(getUnlockCommand(), activeTextEditor, output, globalState);
     if (!update_result) {
-        vscode.window.showErrorMessage('Failed to unlock the Python kernel: ' + update_result);
+        vscode.window.showErrorMessage('Reactive Python: Failed to unlock the Python kernel: ' + update_result);
     }
     else {
         console.log('>> unlockCommand successful: ', update_result);
@@ -449,7 +451,7 @@ function updateState(globalState: Map<string, string>, editor: TextEditor, newSt
             return;
         }
         else {
-            window.showErrorMessage('Invalid state transition: ' + currentState + ' -> ' + newState);
+            window.showErrorMessage('Reactive Python: Invalid state transition: ' + currentState + ' -> ' + newState);
             throw new Error('Invalid initial state: ' + newState + ' , please initialize your editor first');
         }
     }
@@ -459,7 +461,7 @@ function updateState(globalState: Map<string, string>, editor: TextEditor, newSt
         console.log(' -> State transition: ' + currentState + ' -> ' + editorConnectionStateKey(uri) + ' : ' + getState(globalState, editor));
     }
     else {
-        window.showErrorMessage('Invalid state transition: ' + currentState + ' -> ' + newState);
+        window.showErrorMessage('Reactive Python: Invalid state transition: ' + currentState + ' -> ' + newState);
         throw new Error('Invalid state transition: ' + currentState + ' -> ' + newState);
     }
 }
@@ -474,13 +476,16 @@ function checkSettings(globalState: Map<string, string>, editor: TextEditor,) {
     const perFileMode = creationMode && ['perFile', 'perfile'].includes(creationMode);
     const shiftEnterOff = shiftEnter === false;
 
+    console.log(perFileMode && shiftEnterOff)
     if (perFileMode && shiftEnterOff && getState(globalState, editor) === State.settings_not_ok) {
         updateState(globalState, editor, State.initializable);
         return true;
     }
     else if (!perFileMode || !shiftEnterOff) {
-        updateState(globalState, editor, State.settings_not_ok);
-        window.showErrorMessage('Reactive Python: To use Reactive Python', 'please set the Jupyter extension settings to:', ' - "jupyter.interactiveWindow.creationMode": "perFile" ', ' - "jupyter.interactiveWindow.textEditor.executeSelection": false');
+        if (getState(globalState, editor) !== State.settings_not_ok) { 
+            updateState(globalState, editor, State.settings_not_ok); 
+            window.showErrorMessage('Reactive Python: To use Reactive Python please set the Jupyter extension settings to:  - "jupyter.interactiveWindow.creationMode": "perFile"   - "jupyter.interactiveWindow.textEditor.executeSelection": false');
+        }
         return false;
     }
     else {
@@ -490,7 +495,7 @@ function checkSettings(globalState: Map<string, string>, editor: TextEditor,) {
 
 function displayInitializationMessageIfNeeded(globalState: Map<string, string>, editor: TextEditor) {
     if (getState(globalState, editor) === State.initializable) {
-        window.showInformationMessage("Reactive Python: Initialize the extension on this File ", "with the command: 'Initialize Reactive Python' or the CodeLens at the top");
+        window.showInformationMessage("Reactive Python: Initialize the extension on this File with the command: 'Initialize Reactive Python' or the CodeLens at the top");
         updateState(globalState, editor, State.initializable_messaged);
     }
 }
@@ -516,8 +521,8 @@ function displayInitializationMessageIfNeeded(globalState: Map<string, string>, 
 async function getKernelNotebook(document: NotebookDocument): Promise<Kernel | undefined> {
     const extension = extensions.getExtension<Jupyter>('ms-toolsai.jupyter');
     if (!extension) {
-        window.showErrorMessage('Jupyter extension not installed');
-        throw new Error('Jupyter extension not installed');
+        window.showErrorMessage('Reactive Python: Jupyter extension not installed');
+        throw new Error('Reactive Python: Jupyter extension not installed');
     }
     if (!extension.isActive) { await extension.activate(); }
     const api = extension.exports;
@@ -544,13 +549,13 @@ async function getNotebookAndKernel(globalState: Map<string, string>, editor: Te
     let notebook_uri = globalState.get(editorToIWKey(editor.document.uri.toString()));
     let iWsWCorrectUri = vscode.workspace.notebookDocuments.filter((doc) => doc.uri.toString() === notebook_uri);
     if (iWsWCorrectUri.length === 0) {
-        if (notify) { window.showInformationMessage("Lost connection to this editor's Interactive Window. Please initialize it with the command: 'Initialize Reactive Python' or the CodeLens at the top ") }
+        if (notify) { window.showErrorMessage("Reactive Python: Lost connection to this editor's Interactive Window. Please initialize it with the command: 'Initialize Reactive Python' or the CodeLens at the top ") }
         return undefined;
     }
     let notebook = iWsWCorrectUri[0];
     let kernel = await getKernelNotebook(notebook);
     if (!kernel) {
-        if (notify) { window.showInformationMessage("Lost connection to this editor's Python Kernel. ", "Please initialize it with the command ", "'Initialize Reactive Python' or the CodeLens at the top ") }
+        if (notify) { window.showErrorMessage("Reactive Python: Lost connection to this editor's Python Kernel. Please initialize it with the command 'Initialize Reactive Python' or the CodeLens at the top ") }
         return undefined;
     }
     return [notebook, kernel];
@@ -568,7 +573,6 @@ const editorToIWKey = (editorUri: string) => 'editorToIWKey' + editorUri;
 const editorToKernelKey = (editorUri: string) => 'editorToIWKey' + editorUri;
 const editorConnectionStateKey = (editorUri: string) => 'state' + editorUri;
 
-const welcomeText = "# Welcome to Reactive Python";
 
 // Type struct with the cellCount field, called CachedNotebookDocument:
 type CachedNotebookDocument = { cellCount: number, uri: Uri };
@@ -577,9 +581,6 @@ const toMyNotebookDocument = (doc: NotebookDocument): CachedNotebookDocument => 
 
 
 async function initializeInteractiveWindowAndKernel(globalState: Map<string, string>, editor: TextEditor) {
-
-    // Check settings:
-    checkSettings(globalState, editor);
 
     // If not in state initializable or initializable_messaged, return:
     let currentState = getState(globalState, editor)
@@ -640,12 +641,12 @@ async function initializeInteractiveWindowAndKernel(globalState: Map<string, str
 
     let state_now = getState(globalState, editor)
     if (state_now === State.initialization_started) {
-        window.showErrorMessage('Failed to initialize the Interactive Window and the Python Kernel');
+        window.showErrorMessage('Reactive Python: Failed to initialize the Interactive Window and the Python Kernel');
         updateState(globalState, editor, State.initializable_messaged);
         return false;
     }
     else if (state_now === State.kernel_available) {
-        window.showInformationMessage('Successfully initialized the Interactive Window and the Python Kernel');
+        window.showInformationMessage('Reactive Python: Successfully initialized the Interactive Window and the Python Kernel');
         return true;
     }
     else {
@@ -661,6 +662,8 @@ async function initializeInteractiveWindowAndKernel(globalState: Map<string, str
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // PYTHON COMMANDS AND SNIPPETS
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+const welcomeText = "# Welcome to Reactive Python";
 
 export const getCommandToGetRangeToSelectFromPython = (currentQuery: string): string => {
     /*
@@ -774,6 +777,8 @@ export const getEditorCurrentText = (editor: TextEditor): { currentQuery: string
     };
 };
 
+const recognized_states = ['synced', 'outdated', 'syntaxerror', 'dependsonotherstalecode']
+
 export const parseResultFromPythonAndGetRange = (resultFromPython: string): AnnotatedRange[] | null => {
     // ResultFromPython is a string of the form: "[[startLine, endline, state, current, text, hash], [startLine, endline, state, current, text, hash], ...]" (the length is indefinite)
     // Parse it and return the list of ranges to select:
@@ -814,7 +819,7 @@ export const parseResultFromPythonAndGetRange = (resultFromPython: string): Anno
         let current = resultFromPythonParsed[i][3] == 'current';
         let text_ = resultFromPythonParsed[i].length > 4 ? resultFromPythonParsed[i][4] : undefined;
         let hash = resultFromPythonParsed[i].length > 5 ? resultFromPythonParsed[i][5] : undefined;
-        if (startLine >= 0 && endLine >= 0 && startLine <= endLine && (state === 'synced' || state === 'outdated')) {
+        if (startLine >= 0 && endLine >= 0 && startLine <= endLine && recognized_states.includes(state)) {
             // Parse as int:
             startLine = parseInt(startLine);
             endLine = parseInt(endLine);
@@ -936,12 +941,17 @@ let updateDecorations = async (editor: TextEditor, ranges_out: AnnotatedRange[])
         editor.setDecorations(HighlightSynced, sync_ranges);
         let sync_curr_ranges = ranges_out.filter((r) => r.state == 'synced' && r.current).map((r) => r.range);
         editor.setDecorations(HighlightSyncedCurrent, sync_curr_ranges);
-        let out_ranges = ranges_out.filter((r) => r.state == 'outdated' && !r.current).map((r) => r.range);
+        let out_ranges = ranges_out.filter((r) => (r.state == 'outdated' || r.state == 'dependsonotherstalecode') && !r.current).map((r) => r.range);
         editor.setDecorations(HighlightOutdated, out_ranges);
-        let out_curr_ranges = ranges_out
-            .filter((r) => (r.state == 'outdated' || r.state == 'syntaxerror') && r.current)
-            .map((r) => r.range);
+        let highlightsBrightCond = (r: AnnotatedRange) => (((r.state == 'outdated' || r.state == 'dependsonotherstalecode') && r.current) || ((r.state == 'syntaxerror' && !r.current)))
+        let out_curr_ranges = ranges_out.filter(highlightsBrightCond).map((r) => r.range);
         editor.setDecorations(HighlightOutdatedCurrent, out_curr_ranges);
+        
+        // If there is a range with a SyntaxError, show a Window message saying that:
+        let syntax_error_ranges = ranges_out.filter((r) => (r.state == 'syntaxerror' && !r.current));
+        if (syntax_error_ranges.length > 0) {
+            window.showErrorMessage('Reactive Python: Syntax Error at line ' + (syntax_error_ranges[0].range.start.line + 1).toString()); 
+        }
     } catch (error) {
         // console.log('update decorations failed: %O', error);
     }
@@ -1084,6 +1094,8 @@ export function createPreparePythonEnvForReactivePythonAction(globalState: Map<s
 
         if (getState(globalState, editor) == false) { globalState.set(editorConnectionStateKey(editor.document.uri.toString()), State.initializable); }
 
+        checkSettings(globalState, editor);
+
         if (getState(globalState, editor) == (State.initializable) || getState(globalState, editor) == (State.initializable_messaged)) {
             let success = await initializeInteractiveWindowAndKernel(globalState, editor);
             if (!success) { return; }
@@ -1101,6 +1113,9 @@ export function createPreparePythonEnvForReactivePythonAction(globalState: Map<s
         }); // Do this in order to immediately recompute the dag in the python kernel
         if (refreshed_ranges) {
             updateDecorations(editor, refreshed_ranges);
+        }
+        else{
+            updateDecorations(editor, []);
         }
     }
     return preparePythonEnvForReactivePythonAction;
@@ -1260,10 +1275,10 @@ export async function defineAllCommands(context: ExtensionContext, output: Outpu
                 event.textEditor &&
                 editor &&
                 event.textEditor.document === editor.document &&
-                editor.selection.isEmpty
+                editor.selection.isEmpty && 
+                getState(globalState, editor) == State.extension_available
             ) {
                 // console.log('----- Here 2! ');
-                if (getState(globalState, editor) !== State.extension_available) { return; }
                 const current_ranges = await getCurrentRangesFromPython(editor, output, globalState, {
                     rebuild: false
                 });
@@ -1271,7 +1286,10 @@ export async function defineAllCommands(context: ExtensionContext, output: Outpu
                 if (current_ranges) {
                     updateDecorations(editor, current_ranges);
                 }
-                let codelense_range = current_ranges ? current_ranges.filter((r) => r.current).map((r) => r.range) : [];
+                else{
+                    updateDecorations(event.textEditor, []);
+                }
+                let codelense_range = current_ranges ? current_ranges.filter((r) => (r.current && r.state != 'syntaxerror')).map((r) => r.range) : [];
                 // console.log('----- Here 4! ', codelense_range);
                 codelensProvider.change_range(codelense_range.length > 0 ? codelense_range[0] : undefined);
             } else {

@@ -96,3 +96,25 @@ d +=6
 # Get the 'lineno' property from every node in the NetworkX graph reactive_python_dag_builder_utils__.current_dag:
 # [n['lineno'] for n in reactive_python_dag_builder_utils__.current_dag.nodes]  #  This says TypeError: 'int' object is not subscriptable
 [n[1].get('lineno') for n in reactive_python_dag_builder_utils__.current_dag.nodes(data=True)]
+
+
+
+
+code = """
+a = 1                                                         
+b = 2                                                         
+a + b
+"""
+reactive_python_dag_builder_utils__.update_dag_and_get_ranges(
+    code=code, current_line=2, get_upstream=False, get_downstream=True, include_code=True, stale_only=True)
+
+
+
+code = """
+a = 1                                                         
+b = 2                                                         
+a + b
+"""
+reactive_python_dag_builder_utils__.update_dag_and_get_ranges(
+    code=code, current_line=3, get_upstream=True, get_downstream=False, include_code=True, stale_only=True)
+
