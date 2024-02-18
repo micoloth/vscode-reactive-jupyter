@@ -1,3 +1,12 @@
+
+// You can use this Python script to keep the TypeScript file in sync with the Python file:
+// path_in = "src/reactive_python_engine.py"
+// path_out = "src/reactive_python_engine.ts"
+// with open(path_in, 'r') as file:
+//     content = file.read().replace("\\n", "\\\\n")
+// with open(path_out, 'w') as file:
+//     file.write(f'export const scriptCode = `\n{content}\n`;')
+
 import {
     CancellationTokenSource,
     Disposable,
@@ -19,18 +28,23 @@ import {
     Uri,
     NotebookEditor,
     ViewColumn,
-    NotebookCell
+    NotebookCell,
+    NotebookCellOutput,
+    NotebookCellExecutionSummary
 } from 'vscode';
-import { Jupyter, Kernel, JupyterServerCommandProvider } from '@vscode/jupyter-extension';
-import path = require('path');
-import { TextDecoder } from 'util';
-
-import { scriptCode } from './reactive_python_engine';
-import * as interactiveWindow from './interactiveWindowExperiments';
-import { CellOutputDisplayIdTracker } from './cellExecutionMessageHandler';
-
 import * as vscode from 'vscode';
-import { get } from 'http';
+
+import { TextDecoder } from 'util';
+import { scriptCode } from './reactive_python_engine';
+import { Jupyter, Kernel } from '@vscode/jupyter-extension';
+import { generateInteractiveCode } from './codeStolenFromJupyter/generateInteractiveCode';
+// import { CellOutputDisplayIdTracker } from './codeStolenFromJupyter/cellExecutionMessageHandler';
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// UTILS
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 
 const ErrorMimeType = NotebookCellOutputItem.error(new Error('')).mime;
 const StdOutMimeType = NotebookCellOutputItem.stdout('').mime;
@@ -39,21 +53,37 @@ const MarkdownMimeType = 'text/markdown';
 const HtmlMimeType = 'text/html';
 const textDecoder = new TextDecoder();
 
-type AnnotatedRange = {
-    range: Range;
-    state: string; // Remember this exists too: 'synced' | 'outdated';
-    current: boolean;
-    text?: string;
-    hash?: string; // Hash is used so that when you send a node Back to Python, you can check if it actually him or not
-    has_children?: boolean;
-};
+// USEFUL THINGS TO KNOW ABOUT: JUPYTER COMMANDS:                           
+// "jupyter.execSelectionInteractive"  
+// "jupyter.createnewinteractive",  // Create Interactive Window
+// "jupyter.deleteCells"  // Delete Selected Cells
+// "jupyter.restartkernel"  // Restart Kernel
+// "jupyter.removeallcells"  // Delete All Notebook Editor Cells
+// "jupyter.interactive.clearAllCells"  // Clear All
+// "jupyter.selectDependentCells"  //  :O
+// interactive.open - Open interactive window and return notebook editor and input URI
+
+// IMPORTANT IDEA: controller == kernel !!
 
 
+// USEFUL THINGS TO KNOW ABOUT: VSCODE NOTEBOOKS:                           
+// NotebookCellData contains the 
+//  - outputs: NotebookCellOutput[] 
+//  - AND value: string 
+//  - AND the executionSummary: NotebookCellExecutionSummary
+//  NotebookCellExecutionSummary contains the
+//  - success: boolean
+// BUT ALSO, NotebookCell contains the
+//  - readonly document: TextDocument;
+//  - readonly outputs: readonly NotebookCellOutput[];
+//  - readonly executionSummary: NotebookCellExecutionSummary | undefined;
+// Apparently, NotebookCellData is the INPUT TO A NotebookEdit, which is the thing that EXTENSION sends vscode to modify a NotebookDocument of NotebookCell's ?
+// NotebookCellOutput is a list of NotebookCellOutputItem's which have a data: Uint8Array and a mime: string
 
+// Get if Mime is an Error:
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// UTILS
-////////////////////////////////////////////////////////////////////////////////////////////////////
+const errorMimeTypes = ['application/vnd.code.notebook.error', 'application/vnd.code.notebook.stderr'];
+
 
 // An Error type:
 type ExecutionError = {
@@ -62,8 +92,8 @@ type ExecutionError = {
     stack: string;
 };
 
-function isExecutionError(obj: any): obj is ExecutionError {
-    return obj && (obj as ExecutionError).stack !== undefined; // replace 'errorProperty' with a unique property of ExecutionError
+function isExecutionError(obj: any): obj is ExecutionError {  // Typeguard
+    return obj && (obj as ExecutionError).stack !== undefined; 
 }
 
 async function* executeCodeStreamInKernel(code: string, kernel: Kernel, output_channel: OutputChannel | null): AsyncGenerator<string | ExecutionError, void, unknown> {
@@ -72,9 +102,6 @@ async function* executeCodeStreamInKernel(code: string, kernel: Kernel, output_c
     If you need Debugging traces, use console.log(). (currently it logs errors)
     */
 
-    if (output_channel) {
-        output_channel.show(true);
-    }
     // 	// output_channel.appendLine(`>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>`);
     // 	// output_channel.appendLine(`Executing code against kernel ${code}`);
     const tokenSource = new CancellationTokenSource();
@@ -85,14 +112,14 @@ async function* executeCodeStreamInKernel(code: string, kernel: Kernel, output_c
                 if (outputItem.mime === ErrorMimeType) {
                     const error = JSON.parse(decoded) as Error;
                     if (output_channel) {
-                        output_channel.appendLine(`Error executing code ${error.name}: ${error.message},/n ${error.stack}`);
+                        // output_channel.appendLine(`Error executing code ${error.name}: ${error.message},/n ${error.stack}`);
                     }
                     console.log(`Error executing code ${error.name}: ${error.message},/n ${error.stack}`);
                     // new ExecutionError(error.name, error.message, error.stack):
                     yield { name: error.name, message: error.message, stack: error.stack } as ExecutionError;
                 } else {
                     if (output_channel) {
-                        output_channel.appendLine(`${outputItem.mime} Output: ${decoded}`);
+                        // output_channel.appendLine(`${outputItem.mime} Output: ${decoded}`);
                     }
                     yield decoded;
                     if (output_channel) {
@@ -113,7 +140,7 @@ async function* executeCodeStreamInKernel(code: string, kernel: Kernel, output_c
     }
 }
 
-async function executeCodeInKernel(code: string, kernel: Kernel, output_channel: OutputChannel | null) {
+async function executeCodeInKernel(code: string, kernel: Kernel, output_channel: OutputChannel | null): Promise<string | ExecutionError> {
     let result = '';
     for await (const output of executeCodeStreamInKernel(code, kernel, output_channel)) {
         // If undefined or a ExecutionError:
@@ -127,61 +154,116 @@ async function executeCodeInKernel(code: string, kernel: Kernel, output_channel:
     return result;
 }
 
+enum CellState {
+    Success = 'success',
+    Error = 'error',
+    Undefined = 'undefined'
+}
+
+function getCellState(cell: NotebookCell): CellState {
+    // I ASSUME that when the cell is not finished yet, it will have no ExecutionSummary... Who knows if it's true
+    console.log('> CELL: ', cell.executionSummary);
+    if (cell.executionSummary && cell.executionSummary.success !== undefined) { return cell.executionSummary.success ? CellState.Success : CellState.Error; }
+    else { return CellState.Undefined; }
+}
+
+function getBestMatchingCell(cell: NotebookCell, nb: NotebookDocument, last_idx: number, text: string): NotebookCell | undefined {
+    // First check the cell at last_idx. If text doesnt match, go BACK FROM THE LAST ONE until you find a match, else undefined.
+    if (cell.document.getText() === generateInteractiveCode(text)) { return cell; }
+    let cell_id = nb.cellAt(last_idx);
+    if (cell_id.document.getText() === generateInteractiveCode(text)) { return cell_id; }
+    let num_cells = nb.cellCount;
+    for (let i = num_cells - 1; i >= 0; i--) {
+        let cell_i = nb.cellAt(i);
+        if (cell_i.document.getText() === generateInteractiveCode(text)) { return cell_i; }
+    }
+    console.log('No matching cell found: ', );
+    console.log('plain: ', text);
+    console.log('format: ', generateInteractiveCode(text));
+    console.log('cell: ', nb.cellAt(last_idx).document.getText());
+    return undefined;
+}
 
 async function executeCodeInInteractiveWindow(
     text: string,
     notebook: NotebookDocument,
     textEditor: TextEditor,
     output: OutputChannel | null,
-) {
-    let cell: NotebookCell = await interactiveWindow.addNotebookCell(
-        text,
-        textEditor.document.uri,
-        textEditor.selection.start.line,
-        notebook
-    )
-    for (let i = 0; i < 20; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        let newCell = await getUpdatedCell(cell);
-        console.log('INDEX: >> ', newCell.index);
-        console.log('TEXT: >> ', newCell.document.getText());
-        console.log('OUTPUT: >> ', newCell.outputs);
-        console.log('(Btw, the cells are: ', cell.notebook.getCells().map((c) => ([c.index, c.document.getText()])), ')');
-    }
+): Promise<boolean> {
+    // Currently returns True or False, depending if the code was executed successfully or not. TODO: Rethink if you need something different...
 
-    let newCell = await getUpdatedCell(cell);
-    return newCell.outputs; // TODO: This is all wrong...
-    // In particular, AT LEAT you should check if it is an Error and in that case, return undefined!!
-
+    await vscode.commands.executeCommand('jupyter.execSelectionInteractive', text);
     // OTHER THINGS I TRIED:
-    // let res = await vscode.commands.executeCommand('jupyter.execSelectionInteractive', text);
     // let res = await getIWAndRunText(serviceManager, activeTextEditor, text);
     // let res = await executeCodeInKernel(text, kernel, output);
+    // let res = await interactiveWindow.addNotebookCell( text, textEditor.document.uri, textEditor.selection.start.line, notebook )
+    
+    // ^ In particular, it would be a REALLY GOOD IDEA to do addNotebookCell ^ (which already works)
+    // and then TAKE CONTROL OF THE WHOLE cellExecutionQueue mechanism, an Reimplement it here, by ALWAYS SENDING THINGS TO THE KERNEL IMPLICITELY 
+    // and then streaming the output to the NotebookDocyment ourselves, the same way Jupyter does it.. 
+    // PROBLEM: That's a Lot of work. For now, I'll take advantage of the execSelectionInteractive Command because it's Easier...
+    
+    let cell: NotebookCell | undefined = undefined;
+    for (let i = 0; i < 80; i++) {  // Try 20 times to read the last cell:
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        let lastCell = notebook.cellAt(notebook.cellCount - 1);
+        let last_index = notebook.cellCount - 1;
+        cell = getBestMatchingCell(lastCell, notebook, last_index, text);
+        if (cell) { break; }
+    }
+
+    if (!cell) {
+        window.showErrorMessage('Failed to execute the code in the Interactive Window: No matching cell was identified');
+        console.log(">>Inteactive Execution Result for ", text, ": -> false (case 1)")
+        return false;
+    }
+
+    // WAIT until it's successful:
+    let cell_state = CellState.Undefined;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    // Wait forever for 1 of these 2 states:
+    for (let i = 0; i > -1; i++) {
+        cell_state = getCellState(cell);
+        if (cell_state === CellState.Success) { 
+            // If ANY of the outputsitems in the outputs is an Error, return false:
+            for (let i = 0; i < cell.outputs.length; i++) {
+                for (let j = 0; j <  cell.outputs[i].items.length; j++) {
+                    if (errorMimeTypes.includes( cell.outputs[i].items[j].mime)) { 
+                        console.log(">>Inteactive Execution Result for ", text, ": -> false (case 2)")
+                        return false; 
+                    }
+                }
+            }
+            console.log(">>Inteactive Execution Result for ", text, ": -> true (case 3)")
+            return true; 
+        }
+        else if (cell_state === CellState.Error) { 
+            console.log(">>Inteactive Execution Result for ", text, ": -> false (case 4)")
+            return false; 
+        }
+        await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+
+    window.showErrorMessage('Failed to execute the code in the Interactive Window: The cell did not finish executing');
+    console.log(">>Inteactive Execution Result for ", text, ": -> false (case 5)")
+    return false;
+
+    // for (let i = 0; i < 20; i++) {
+    //     await new Promise((resolve) => setTimeout(resolve, 500));
+    //     let newCell = await getUpdatedCell(cell);
+    //     console.log('INDEX: >> ', newCell.index);
+    //     console.log('TEXT: >> ', newCell.document.getText());
+    //     console.log('OUTPUT: >> ', newCell.outputs);
+    //     console.log('(Btw, the cells are: ', cell.notebook.getCells().map((c) => ([c.index, c.document.getText()])), ')');
+    // }
+    
+    // let newCell = await getUpdatedCell(cell);
+    // return newCell.outputs; // TODO: This is all wrong...
+    // In particular, AT LEAT you should check if it is an Error and in that case, return undefined!!
+    
+    // OTHER THINGS I TRIED:
 
 }
-
-// USEFUL:                           
-// "jupyter.execSelectionInteractive"  
-// "jupyter.createnewinteractive",  // Create Interactive Window
-// "jupyter.deleteCells"  // Delete Selected Cells
-// "jupyter.restartkernel"  // Restart Kernel
-// "jupyter.removeallcells"  // Delete All Notebook Editor Cells
-// "jupyter.interactive.clearAllCells"  // Clear All
-// "jupyter.selectDependentCells"  //  :O
-
-// interactive.open - Open interactive window and return notebook editor and input URI
-
-// showOptions - Show Options
-// resource - Interactive resource Uri
-// controllerId - Notebook controller Id
-// title - Interactive editor title
-// (returns) - Notebook and input URI
-
-
-// IMPORTANT IDEA: controller == kernel !!
-// TODO: Look for NotebookController
-
-// let resDel = await vscode.commands.executeCommand('jupyter.interactive.clearAllCells');
 
 
 
@@ -205,7 +287,7 @@ async function safeExecuteCodeInInteractiveWindow(
         return;
     }
     let [notebook, kernel] = notebookAndKernel;
-    updateState(globalState, editor, State.explit_execution_started);
+    updateState(globalState, editor, State.explicit_execution_started);
     const result = await executeCodeInInteractiveWindow(command, notebook, editor, output);
     if (return_to_initial_state) { updateState(globalState, editor, expected_initial_state); }
     return result;
@@ -241,7 +323,7 @@ async function safeExecuteCodeInKernelForInitialization(
     output: OutputChannel | null,
     globalState: Map<string, string>
 ): Promise<boolean> {
-    // It's SLIGHTLY different from the above one... 
+    // It's SLIGHTLY different from the above one, in ways I didn't bother to reconcile...
     if (getState(globalState, editor) !== State.kernel_available) { return false; }
     if (!checkSettings(globalState, editor)) { return false; }
 
@@ -265,13 +347,15 @@ async function safeExecuteCodeInKernelForInitialization(
     }
 }
 
-async function getUpdatedCell(cell: NotebookCell) {
-    let notebook = cell.notebook;
-    let index = cell.index;
 
-    let newCell = await notebook.cellAt(index);
-    return newCell;
-}
+type AnnotatedRange = {
+    range: Range;
+    state: string; // Remember this exists too: 'synced' | 'outdated';
+    current: boolean;
+    text?: string;
+    hash?: string; // Hash is used so that when you send a node Back to Python, you can check if it actually him or not
+    has_children?: boolean;
+};
 
 async function queueComputation(
     current_ranges: AnnotatedRange[] | undefined,
@@ -305,8 +389,7 @@ async function queueComputation(
             }
         }
     }
-    let unlockCommand = getUnlockCommand();
-    const update_result = await safeExecuteCodeInKernel(unlockCommand, activeTextEditor, output, globalState);
+    const update_result = await safeExecuteCodeInKernel(getUnlockCommand(), activeTextEditor, output, globalState);
     if (!update_result) {
         vscode.window.showErrorMessage('Failed to unlock the Python kernel: ' + update_result);
     }
@@ -318,7 +401,7 @@ async function queueComputation(
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-//    CONNECT TO INTERACTIVE WINDOW AS WELL AS KERNEL:
+//    CONNECT TO INTERACTIVE WINDOW AS WELL AS KERNEL:  STATE MACHINE
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 enum State {
@@ -330,7 +413,7 @@ enum State {
     kernel_available = 'kernel_available',
     instantialization_started = 'instantialization_started',
     extension_available = 'extension_available',
-    explit_execution_started = 'explit_execution_started',
+    explicit_execution_started = 'explicit_execution_started',
     implicit_execution_started = 'implicit_execution_started',
 }
 
@@ -344,8 +427,8 @@ const stateTransitions: Map<State, State[]> = new Map([
     [State.kernel_found, [State.kernel_available].concat(initial_states)],
     [State.kernel_available, [State.instantialization_started, State.extension_available].concat(initial_states)],
     [State.instantialization_started, [State.extension_available].concat(initial_states)],
-    [State.extension_available, [State.explit_execution_started, State.implicit_execution_started].concat(initial_states)],
-    [State.explit_execution_started, [State.extension_available]],
+    [State.extension_available, [State.explicit_execution_started, State.implicit_execution_started].concat(initial_states)],
+    [State.explicit_execution_started, [State.extension_available]],
     [State.implicit_execution_started, [State.extension_available]],
 ]);
 
@@ -463,7 +546,6 @@ async function getNotebookAndKernel(globalState: Map<string, string>, editor: Te
     if (iWsWCorrectUri.length === 0) {
         if (notify) { window.showInformationMessage("Lost connection to this editor's Interactive Window. Please initialize it with the command: 'Initialize Reactive Python' or the CodeLens at the top ") }
         return undefined;
-
     }
     let notebook = iWsWCorrectUri[0];
     let kernel = await getKernelNotebook(notebook);
@@ -530,7 +612,14 @@ async function initializeInteractiveWindowAndKernel(globalState: Map<string, str
         globalState.set(editorToIWKey(editor.document.uri.toString()), newNotebook.uri.toString());
         // Sleep 3 secs:
         await new Promise((resolve) => setTimeout(resolve, 3000));
-        let okFoundKernel = await getNotebookAndKernel(globalState, editor,);
+        let okFoundKernel: [NotebookDocument, Kernel] | undefined = undefined;
+        for (let i = 0; i < 10; i++) {
+            okFoundKernel = await getNotebookAndKernel(globalState, editor,);
+            if (okFoundKernel) { break; }
+            window.showInformationMessage('Waiting for the Python Kernel to start...');
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+
         if (!okFoundKernel) { n_attempts -= 1; continue }
         updateState(globalState, editor, State.kernel_found);
 
@@ -686,7 +775,7 @@ export const getEditorCurrentText = (editor: TextEditor): { currentQuery: string
 };
 
 export const parseResultFromPythonAndGetRange = (resultFromPython: string): AnnotatedRange[] | null => {
-    // ResultFromPython is a string of the form: "[[startLine, endline, state], [startLine, endline, state], ...]" (the length is indefinite)
+    // ResultFromPython is a string of the form: "[[startLine, endline, state, current, text, hash], [startLine, endline, state, current, text, hash], ...]" (the length is indefinite)
     // Parse it and return the list of ranges to select:
 
     // Result is returned as String, so remove the first and last character to get the Json-parsable string:
@@ -894,9 +983,11 @@ export class CellCodelensProvider implements vscode.CodeLensProvider {
     change_range(new_range: Range | undefined) {
         // console.log('>>>>>>>>>>>>>>>>>>NICE, FIRED RESET!. ');
         if (new_range && new_range != this.range) {
+            // console.log('>>>>> Here I am, setting: ' + this.range);
             this.range = new_range;
             this._onDidChangeCodeLenses.fire();
         } else if (!new_range && this.range) {
+            // console.log('>>>>> Here I am, UNsetting: ' + this.range);
             this.range = undefined;
             this._onDidChangeCodeLenses.fire();
         }
@@ -913,6 +1004,7 @@ export class CellCodelensProvider implements vscode.CodeLensProvider {
         token: vscode.CancellationToken
     ): vscode.CodeLens[] | Thenable<vscode.CodeLens[]> {
         let editor = vscode.window.activeTextEditor;
+        // console.log('>>>>> Here I am, reading: ' + this.range);
         if (editor && this.range && editor.document.uri == document.uri) {
             // Current line:
             this.codeLenses = [
@@ -981,14 +1073,14 @@ export class InitialCodelensProvider implements vscode.CodeLensProvider {
 
 
 
-export function createPreparePythonEnvForReactivePython(globalState: Map<string, string>, output: OutputChannel) {
-    async function preparePythonEnvForReactivePython() {
-        /* IDEA:
-        we DON'T want to run this on Activation, but WE ARE DOING IT FOR NOW. for easier testing.
-        */
+export function createPreparePythonEnvForReactivePythonAction(globalState: Map<string, string>, output: OutputChannel) {
+    async function preparePythonEnvForReactivePythonAction() {
+
         let command = scriptCode + '\n\n\n"Reactive Python Activated"\n';
         let editor = window.activeTextEditor;
         if (!editor) { return; }
+        
+        if (output) { output.show(true); }
 
         if (getState(globalState, editor) == false) { globalState.set(editorConnectionStateKey(editor.document.uri.toString()), State.initializable); }
 
@@ -1001,17 +1093,17 @@ export function createPreparePythonEnvForReactivePython(globalState: Map<string,
         let instantiated_script = await safeExecuteCodeInKernelForInitialization(command, editor, output, globalState);
         if (!instantiated_script) { return; }
 
-        // Immediatly start coloring ranges:
+        // Immediately start coloring ranges:
 
         let refreshed_ranges = await getCurrentRangesFromPython(editor, null, globalState, {
             rebuild: true,
             current_line: null
-        }); // Do this in order to immediatly recompute the dag in the python kernel
+        }); // Do this in order to immediately recompute the dag in the python kernel
         if (refreshed_ranges) {
             updateDecorations(editor, refreshed_ranges);
         }
     }
-    return preparePythonEnvForReactivePython;
+    return preparePythonEnvForReactivePythonAction;
 }
 
 export function createComputeAction(config: {
@@ -1077,7 +1169,7 @@ export function activate(context: ExtensionContext) {
 
     defineAllCommands(context, output, globalState);
 
-    CellOutputDisplayIdTracker.activate();
+    // CellOutputDisplayIdTracker.activate();
 }
 
 
@@ -1103,7 +1195,7 @@ export async function defineAllCommands(context: ExtensionContext, output: Outpu
     context.subscriptions.push(
         vscode.commands.registerCommand(
             'jupyter.initialize-reactive-python-extension',
-            createPreparePythonEnvForReactivePython(globalState, output)
+            createPreparePythonEnvForReactivePythonAction(globalState, output)
         )
     );
     context.subscriptions.push(
@@ -1120,7 +1212,7 @@ export async function defineAllCommands(context: ExtensionContext, output: Outpu
         vscode.commands.registerCommand('jupyter.sync-all', createComputeAction({ rebuild: true, current_line: null, upstream: true, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output))
     );
 
-    // await preparePythonEnvForReactivePython(output);
+    // await preparePythonEnvForReactivePythonAction(output);
 
     ///////// Codelens: ///////////////////////
 
@@ -1183,7 +1275,7 @@ export async function defineAllCommands(context: ExtensionContext, output: Outpu
                 // console.log('----- Here 4! ', codelense_range);
                 codelensProvider.change_range(codelense_range.length > 0 ? codelense_range[0] : undefined);
             } else {
-                // console.log('----- Here 5! ');
+                // console.log('----- Here 5! ', event.textEditor !== undefined, editor !== undefined, event.textEditor.document !== undefined, (editor) ? true: false, (editor) ? event.textEditor.document === editor.document : false);
                 updateDecorations(event.textEditor, []);
                 codelensProvider.change_range(undefined);
             }
