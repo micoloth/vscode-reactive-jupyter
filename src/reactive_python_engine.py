@@ -878,9 +878,10 @@ class ReactivePythonDagBuilderUtils__():
                 else:
                     nodes_to_return = [n for n in nodes_to_return if current_dag.nodes[n]['text'] != '_START_']
 
-                # Additional step: If get_downstream, you want to identify which codes are stale but actually depend 
-                # on other stale code that has NOTHING to do with current_line, and so will not be executed..
-                if get_downstream and stale_only:
+                # Additional step: If get_downstream OR if you are running a single block (neither downstream not upstream), 
+                # you want to identify which codes are stale but actually depend on other stale code
+                # that has NOTHING to do with current_line, and so will not be executed..
+                if (get_downstream and stale_only) or (not get_downstream and not get_upstream):
                     # Remove the ones which depend on stale nodes that are Not in nodes_to_returm by setting their depends_on_stale_nodes_not_selected to True:
                     for n in nodes_to_return:
                         depends_on_stale_nodes_not_selected = False

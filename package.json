@@ -1,5 +1,5 @@
 {
-	"name": "jupyter-kernel-execution-sample",
+	"name": "reactivejupyter",
 	"displayName": "Reactive Jupyter",
 	"description": "Jupyter notebook support, with Reactive interactive programming and computing and support for Intellisense, debugging, and more.",
 	"publisher": "micoloth",
@@ -33,7 +33,7 @@
 	"contributes": {
 		"colors": [
 			{
-				"id": "jupyter.syncedCell",
+				"id": "reactivejupyter.syncedCell",
 				"description": "Background decoration color for synced unselected cell",
 				"defaults": {
 					"dark": "#0dca3957",
@@ -42,7 +42,7 @@
 				}
 			},
 			{
-				"id": "jupyter.syncedCurrentCell",
+				"id": "reactivejupyter.syncedCurrentCell",
 				"description": "Background decoration color for synced unselected cell",
 				"defaults": {
 					"dark": "#0dca39c8",
@@ -51,7 +51,7 @@
 				}
 			},
 			{
-				"id": "jupyter.outdatedCell",
+				"id": "reactivejupyter.outdatedCell",
 				"description": "Background decoration color for current query",
 				"defaults": {
 					"dark": "#d4164658",
@@ -60,7 +60,7 @@
 				}
 			},
 			{
-				"id": "jupyter.outdatedCurrentCell",
+				"id": "reactivejupyter.outdatedCurrentCell",
 				"description": "Background decoration color for current query",
 				"defaults": {
 					"dark": "#d41646da",
@@ -76,44 +76,63 @@
 				"category": "Jupyter Kernel API"
 			},
 			{
-				"command": "jupyter.initialize-reactive-python-extension",
+				"command": "reactivejupyter.initialize-reactive-python-extension",
 				"title": "Initialize Reactive Python",
 				"category": "Reactive Python"
 			},
 			{
-				"command": "jupyter.sync-downstream",
+				"command": "reactivejupyter.sync-downstream",
 				"title": "Refresh all Downstream",
 				"category": "Reactive Python"
 			},
 			{
-				"command": "jupyter.sync-upstream",
+				"command": "reactivejupyter.sync-upstream",
 				"title": "Refresh all Upstream",
 				"category": "Reactive Python"
 			},
 			{
-				"command": "jupyter.sync-upstream-and-downstream",
+				"command": "reactivejupyter.sync-upstream-and-downstream",
 				"title": "Refresh all Upstream and Downstream of the current cell",
 				"category": "Reactive Python"
 			},
 			{
-				"command": "jupyter.sync-all",
-				"title": "Refresh all Stale Cells",
+				"command": "reactivejupyter.sync-all",
+				"title": "Refresh all Stale Blocks",
 				"category": "Reactive Python"
 			},
 			{
-				"command": "jupyter.test-command",
+				"command": "reactivejupyter.sync-current",
+				"title": "Run current block",
+				"category": "Reactive Python"
+			},
+			{
+				"command": "reactivejupyter.test-command",
 				"title": "Refresh all Downstream",
 				"category": "Reactive Python"
 			}
 		],
-		"menus": {
-			"commandPalette": [
-				{
-					"command": "jupyterKernelExecution.listKernels",
-					"title": "Execute code against a Python Kernel"
-				}
-			]
-		}
+		"keybindings": [
+            {
+                "command": "reactivejupyter.sync-all",
+                "key": "shift+cmd+enter",
+                "when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
+            },
+            {
+                "command": "reactivejupyter.sync-upstream",
+                "key": "shift+cmd+up shift+cmd+enter",
+                "when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
+            },
+            {
+                "command": "reactivejupyter.sync-downstream",
+                "key": "shift+cmd+down shift+cmd+enter",
+                "when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
+            },
+            {
+                "command": "reactivejupyter.sync-current",
+                "key": "shift+enter",
+                "when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
+            }
+		]
 	},
 	"scripts": {
 		"vscode:prepublish": "npm run compile",

@@ -82,20 +82,6 @@ const textDecoder = new TextDecoder();
 
 // Get if Mime is an Error:
 
-const errorMimeTypes = ['application/vnd.code.notebook.error']; // 'application/vnd.code.notebook.stderr' ? But like, TQDM outputs this even tho it succedes..
-
-
-// An Error type:
-type ExecutionError = {
-    name: string;
-    message: string;
-    stack: string;
-};
-
-function isExecutionError(obj: any): obj is ExecutionError {  // Typeguard
-    return obj && (obj as ExecutionError).stack !== undefined; 
-}
-
 async function* executeCodeStreamInKernel(code: string, kernel: Kernel, output_channel: OutputChannel | null): AsyncGenerator<string | ExecutionError, void, unknown> {
     /*
     Currently, it ALWAYS logs a line (for the user), and it returns the result if it is NOT AN ERROR, else Undefined. 
@@ -145,42 +131,12 @@ async function executeCodeInKernel(code: string, kernel: Kernel, output_channel:
     return result;
 }
 
-enum CellState {
-    Success = 'success',
-    Error = 'error',
-    Undefined = 'undefined'
-}
-
-function getCellState(cell: NotebookCell): CellState {
-    console.log('> CELL: ', cell.executionSummary);
-    if (cell.executionSummary && cell.executionSummary.success !== undefined) { return cell.executionSummary.success ? CellState.Success : CellState.Error; }
-    else { return CellState.Undefined; }
-}
-
-function getBestMatchingCell(cell: NotebookCell, nb: NotebookDocument, last_idx: number, text: string): NotebookCell | undefined {
-    // First check the cell at last_idx. If text doesnt match, go BACK FROM THE LAST ONE until you find a match, else undefined.
-    if (cell.document.getText() === generateInteractiveCode(text)) { return cell; }
-    let cell_id = nb.cellAt(last_idx);
-    if (cell_id.document.getText() === generateInteractiveCode(text)) { return cell_id; }
-    let num_cells = nb.cellCount;
-    for (let i = num_cells - 1; i >= 0; i--) {
-        let cell_i = nb.cellAt(i);
-        if (cell_i.document.getText() === generateInteractiveCode(text)) { return cell_i; }
-    }
-    console.log('No matching cell found: ', );
-    console.log('plain: ', text);
-    console.log('format: ', generateInteractiveCode(text));
-    console.log('cell: ', nb.cellAt(last_idx).document.getText());
-    return undefined;
-}
-
 async function executeCodeInInteractiveWindow(
     text: string,
     notebook: NotebookDocument,
-    textEditor: TextEditor,
     output: OutputChannel | null,
 ): Promise<boolean> {
-    // Currently returns True or False, depending if the code was executed successfully or not. TODO: Rethink if you need something different...
+    // Currently returns True or False, depending if the code was executed successfully or not. TODO: Rethink if you need something more...
 
     await vscode.commands.executeCommand('jupyter.execSelectionInteractive', text);
     // OTHER THINGS I TRIED:
@@ -216,14 +172,9 @@ async function executeCodeInInteractiveWindow(
         cell_state = getCellState(cell);
         if (cell_state === CellState.Success) { 
             // If ANY of the outputsitems in the outputs is an Error, return false:
-            for (let i = 0; i < cell.outputs.length; i++) {
-                for (let j = 0; j <  cell.outputs[i].items.length; j++) {
-                    if (errorMimeTypes.includes( cell.outputs[i].items[j].mime)) { 
-                        console.log(">>Inteactive Execution Result for ", text, ": -> false (case 2)")
-                        console.log(' In Particular: ', cell.outputs[i].items[j].mime, cell.outputs[i].items[j].data);
-                        return false; 
-                    }
-                }
+            if (has_error_mime(cell)) {
+                console.log(">>Inteactive Execution Result for ", text, ": -> false (case 2)")
+                return false;
             }
             console.log(">>Inteactive Execution Result for ", text, ": -> true (case 3)")
             return true; 
@@ -239,49 +190,6 @@ async function executeCodeInInteractiveWindow(
     console.log(">>Inteactive Execution Result for ", text, ": -> false (case 5)")
     return false;
 
-    // for (let i = 0; i < 20; i++) {
-    //     await new Promise((resolve) => setTimeout(resolve, 500));
-    //     let newCell = await getUpdatedCell(cell);
-    //     console.log('INDEX: >> ', newCell.index);
-    //     console.log('TEXT: >> ', newCell.document.getText());
-    //     console.log('OUTPUT: >> ', newCell.outputs);
-    //     console.log('(Btw, the cells are: ', cell.notebook.getCells().map((c) => ([c.index, c.document.getText()])), ')');
-    // }
-    
-    // let newCell = await getUpdatedCell(cell);
-    // return newCell.outputs; // TODO: This is all wrong...
-    // In particular, AT LEAT you should check if it is an Error and in that case, return undefined!!
-    
-    // OTHER THINGS I TRIED:
-
-}
-
-
-
-
-async function safeExecuteCodeInInteractiveWindow(
-    command: string,
-    editor: TextEditor,
-    output: OutputChannel | null,
-    globalState: Map<string, string>,
-    expected_initial_state: State = State.extension_available,
-    return_to_initial_state: boolean = true
-) {
-    displayInitializationMessageIfNeeded(globalState, editor);
-    if (getState(globalState, editor) !== expected_initial_state) { return; }
-    if (!checkSettings(globalState, editor)) { return; }
-
-    let notebookAndKernel = await getNotebookAndKernel(globalState, editor, true);
-    if (!notebookAndKernel) {
-        window.showErrorMessage("Reactive Python: Lost Connection to this editor's Notebook. Please initialize the extension with the command 'Initialize Reactive Python' or the CodeLens at the top");
-        updateState(globalState, editor, State.initializable_messaged);
-        return;
-    }
-    let [notebook, kernel] = notebookAndKernel;
-    updateState(globalState, editor, State.explicit_execution_started);
-    const result = await executeCodeInInteractiveWindow(command, notebook, editor, output);
-    if (return_to_initial_state) { updateState(globalState, editor, expected_initial_state); }
-    return result;
 }
 
 async function safeExecuteCodeInKernel(
@@ -338,6 +246,31 @@ async function safeExecuteCodeInKernelForInitialization(
     }
 }
 
+async function safeExecuteCodeInInteractiveWindow(
+    command: string,
+    editor: TextEditor,
+    output: OutputChannel | null,
+    globalState: Map<string, string>,
+    expected_initial_state: State = State.extension_available,
+    return_to_initial_state: boolean = true
+) {
+    displayInitializationMessageIfNeeded(globalState, editor);
+    if (getState(globalState, editor) !== expected_initial_state) { return; }
+    if (!checkSettings(globalState, editor)) { return; }
+
+    let notebookAndKernel = await getNotebookAndKernel(globalState, editor, true);
+    if (!notebookAndKernel) {
+        window.showErrorMessage("Reactive Python: Lost Connection to this editor's Notebook. Please initialize the extension with the command 'Initialize Reactive Python' or the CodeLens at the top");
+        updateState(globalState, editor, State.initializable_messaged);
+        return;
+    }
+    let [notebook, kernel] = notebookAndKernel;
+    updateState(globalState, editor, State.explicit_execution_started);
+    const result = await executeCodeInInteractiveWindow(command, notebook, output);
+    if (return_to_initial_state) { updateState(globalState, editor, expected_initial_state); }
+    return result;
+}
+
 
 type AnnotatedRange = {
     range: Range;
@@ -354,32 +287,28 @@ async function queueComputation(
     globalState: Map<string, string>,
     output: OutputChannel,
 ) {
-    // console.log('>> CURRENT RANGES::::: ' + current_ranges);
     if (current_ranges) {
-        // let resDel = await vscode.commands.executeCommand('jupyter.interactive.clearAllCells');
-        // console.log('---- >>>> RES DEL: ', resDel);
+        let said_dependsonotherstalecode_message = false;
         for (let range of current_ranges) {
             if (!range.text) break;
 
             if (range.state === 'dependsonotherstalecode') {
-                // Display a window explaining the problem, and DONT execute it:
-                // Get tonly the first 100 characters of the text:
-                let text = range.text.slice(0, 100);
-                window.showErrorMessage('Reactive Python: ' + text + ' depends on other code that is outdated. Please update the other code first.');
+                if (!said_dependsonotherstalecode_message) {
+                    let text = range.text.slice(0, 100);
+                    window.showErrorMessage('Reactive Python: ' + text + ' depends on other code that is outdated. Please update the other code first.');
+                    said_dependsonotherstalecode_message = true;
+                }   
                 continue;
             }
-            // console.log('>> TEXT: ', range.text);
 
             let res = await safeExecuteCodeInInteractiveWindow(range.text, activeTextEditor, output, globalState);
             if (!res) { break; }
 
-            // console.log('>> updateRange_command: ', updateRange_command);
             const update_result = await safeExecuteCodeInKernel(getSyncRangeCommand(range), activeTextEditor, output, globalState);
             if (!update_result) {
                 vscode.window.showErrorMessage("Reactive Python: Failed to update the range's state in Python: " + range.hash + " -- " + update_result);
                 break;
             }
-            // Trigger a onDidChangeTextEditorSelection event:
             const refreshed_ranges = await getCurrentRangesFromPython(activeTextEditor, output, globalState, {
                 rebuild: false
             });
@@ -400,6 +329,65 @@ async function queueComputation(
     }
 }
 
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//    SOME HELPER FUNCTIONS:
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+const errorMimeTypes = ['application/vnd.code.notebook.error']; // 'application/vnd.code.notebook.stderr' ? But like, TQDM outputs this even tho it succedes..
+
+function has_error_mime(cell: NotebookCell): boolean {
+    for (let i = 0; i < cell.outputs.length; i++) {
+        for (let j = 0; j <  cell.outputs[i].items.length; j++) {
+            if (errorMimeTypes.includes( cell.outputs[i].items[j].mime)) { 
+                console.log(' Error Mime: ', cell.outputs[i].items[j].mime, cell.outputs[i].items[j].data);
+                return true; 
+            }
+        }
+    }
+    return false;
+}
+
+// An Error type:
+type ExecutionError = {
+    name: string;
+    message: string;
+    stack: string;
+};
+
+function isExecutionError(obj: any): obj is ExecutionError {  // Typeguard
+    return obj && (obj as ExecutionError).stack !== undefined; 
+}
+
+enum CellState {
+    Success = 'success',
+    Error = 'error',
+    Undefined = 'undefined'
+}
+
+function getCellState(cell: NotebookCell): CellState {
+    console.log('> CELL: ', cell.executionSummary);
+    if (cell.executionSummary && cell.executionSummary.success !== undefined) { return cell.executionSummary.success ? CellState.Success : CellState.Error; }
+    else { return CellState.Undefined; }
+}
+
+function getBestMatchingCell(cell: NotebookCell, nb: NotebookDocument, last_idx: number, text: string): NotebookCell | undefined {
+    // First check the cell at last_idx. If text doesnt match, go BACK FROM THE LAST ONE until you find a match, else undefined.
+    if (cell.document.getText() === generateInteractiveCode(text)) { return cell; }
+    let cell_id = nb.cellAt(last_idx);
+    if (cell_id.document.getText() === generateInteractiveCode(text)) { return cell_id; }
+    let num_cells = nb.cellCount;
+    for (let i = num_cells - 1; i >= 0; i--) {
+        let cell_i = nb.cellAt(i);
+        if (cell_i.document.getText() === generateInteractiveCode(text)) { return cell_i; }
+    }
+    console.log('No matching cell found: ', );
+    console.log('plain: ', text);
+    console.log('format: ', generateInteractiveCode(text));
+    console.log('cell: ', nb.cellAt(last_idx).document.getText());
+    return undefined;
+}
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -500,24 +488,6 @@ function displayInitializationMessageIfNeeded(globalState: Map<string, string>, 
     }
 }
 
-// async function getAllKernelsList(): Promise<Map<NotebookDocument, Kernel | undefined>> {
-//     const extension = extensions.getExtension<Jupyter>('ms-toolsai.jupyter');
-// 	if (!extension) {
-//         window.showErrorMessage('Jupyter extension not installed');
-//         throw new Error('Jupyter extension not installed');
-// 	}
-//     if (!extension.isActive) { await extension.activate(); }
-//     const api = extension.exports;
-//     let notebookDocuments = workspace.notebookDocuments;
-//     let notebookToKernel: Map<NotebookDocument, Kernel | undefined> = new Map();
-//     await Promise.all(
-//         notebookDocuments.map(async (document) => {
-//         const kernel = await api.kernels.getKernel(document.uri);
-//         if (kernel && (kernel as any).language === 'python') {  notebookToKernel.set(document, kernel); }
-//         else { notebookToKernel.set(document, undefined); }
-//     }));
-//     return notebookToKernel;
-// }
 async function getKernelNotebook(document: NotebookDocument): Promise<Kernel | undefined> {
     const extension = extensions.getExtension<Jupyter>('ms-toolsai.jupyter');
     if (!extension) {
@@ -562,13 +532,6 @@ async function getNotebookAndKernel(globalState: Map<string, string>, editor: Te
 }
 
 
-// Break everything:
-// let IW_uri = globalState.get(editorToIWKey(uri));
-// let kernel_uri = globalState.get(editorToKernelKey(uri));
-// let iWsWCorrectUri = notebookDocuments.filter((doc) => doc.uri.toString() === IW_uri);
-// await globalState.set(editorIWCreationLockKey(uri), 'true');
-
-
 const editorToIWKey = (editorUri: string) => 'editorToIWKey' + editorUri;
 const editorToKernelKey = (editorUri: string) => 'editorToIWKey' + editorUri;
 const editorConnectionStateKey = (editorUri: string) => 'state' + editorUri;
@@ -576,7 +539,6 @@ const editorConnectionStateKey = (editorUri: string) => 'state' + editorUri;
 
 // Type struct with the cellCount field, called CachedNotebookDocument:
 type CachedNotebookDocument = { cellCount: number, uri: Uri };
-// NotebookDocument to CachedNotebookDocument:
 const toMyNotebookDocument = (doc: NotebookDocument): CachedNotebookDocument => ({ cellCount: doc.cellCount, uri: doc.uri });
 
 
@@ -665,17 +627,7 @@ async function initializeInteractiveWindowAndKernel(globalState: Map<string, str
 
 const welcomeText = "# Welcome to Reactive Python";
 
-export const getCommandToGetRangeToSelectFromPython = (currentQuery: string): string => {
-    /*
-    FAKE
-    */
-    // Pass currentQuery as a SIMPLE STRING, ie all the newlines should be passed in as explicit \n and so on:
-    // Turn currentQuery in a string that can be passed to Python, by sanitizing all the Newlines, Quotes and Indentations
-    // (ie, keeping them but in a way that Python can receive as a string):
-    return 'get_commands_to_execute("""' + currentQuery + '""")';
-};
-
-export const getCommandToGetAllRanges = (
+const getCommandToGetAllRanges = (
     text: string | null,
     current_line: number | null,
     upstream: boolean,
@@ -688,7 +640,6 @@ export const getCommandToGetAllRanges = (
     let upstream_param: string = upstream ? 'True' : 'False';
     let downstream_param: string = downstream ? 'True' : 'False';
     let stale_only_param: string = stale_only ? 'True' : 'False';
-    // return `if "reactive_python_dag_builder_utils__" in globals():\n\treactive_python_dag_builder_utils__.update_dag_and_get_ranges(code= ${text_}, current_line=${current_line_str}, get_upstream=${upstream_param}, get_downstream=${downstream_param}, stale_only=${stale_only_param})\nelse:\n\t[]`;
     if (to_launch_compute) {
         return `reactive_python_dag_builder_utils__.ask_for_ranges_to_compute(code= ${text_}, current_line=${current_line_str}, get_upstream=${upstream_param}, get_downstream=${downstream_param}, stale_only=${stale_only_param})`;
     } else {
@@ -696,20 +647,19 @@ export const getCommandToGetAllRanges = (
     }
 };
 
-export const getSyncRangeCommand = (range: AnnotatedRange): string => {
+const getSyncRangeCommand = (range: AnnotatedRange): string => {
     return `reactive_python_dag_builder_utils__.set_locked_range_as_synced(${range.hash})`;
 };
 
-export const getUnlockCommand = (): string => {
+const getUnlockCommand = (): string => {
     return `reactive_python_dag_builder_utils__.unlock()`;
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // HIGHLIGHTING UTILS
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// import { TextEditor, Range } from 'vscode';
 
-export const getEditorAllText = (editor: TextEditor): { text: string | null } => {
+const getEditorAllText = (editor: TextEditor): { text: string | null } => {
     if (!editor || !editor.document || editor.document.uri.scheme === 'output') {
         return {
             text: null
@@ -722,7 +672,7 @@ export const getEditorAllText = (editor: TextEditor): { text: string | null } =>
 function formatTextAsPythonString(text: string) {
     text = text.replace(/\\/g, '\\\\');
     // >> You MIGHT be interested in
-    // /Users/michele.tasca/Documents/vscode-extensions/vscode-reactive-jupyter/src/platform/terminals/codeExecution/codeExecutionHelper.node.ts
+    // /Users/michele.tasca/Documents/vscode-extensions/vscode-reactivejupyter/src/platform/terminals/codeExecution/codeExecutionHelper.node.ts
     //  >> CodeExecutionHelper >> normalizeLines  ...
     text = text.replace(/'/g, "\\'");
     text = text.replace(/"/g, '\\"');
@@ -733,7 +683,7 @@ function formatTextAsPythonString(text: string) {
     return text;
 }
 
-export const getEditorCurrentLineNum = (editor: TextEditor): number | null => {
+const getEditorCurrentLineNum = (editor: TextEditor): number | null => {
     if (!editor || !editor.document || editor.document.uri.scheme === 'output') {
         return null;
     }
@@ -741,7 +691,7 @@ export const getEditorCurrentLineNum = (editor: TextEditor): number | null => {
     return currentLineNum;
 };
 
-export const getEditorCurrentText = (editor: TextEditor): { currentQuery: string; currentRange: Range | null } => {
+const getEditorCurrentText = (editor: TextEditor): { currentQuery: string; currentRange: Range | null } => {
     if (!editor || !editor.document || editor.document.uri.scheme === 'output') {
         return {
             currentQuery: '',
@@ -779,7 +729,7 @@ export const getEditorCurrentText = (editor: TextEditor): { currentQuery: string
 
 const recognized_states = ['synced', 'outdated', 'syntaxerror', 'dependsonotherstalecode']
 
-export const parseResultFromPythonAndGetRange = (resultFromPython: string): AnnotatedRange[] | null => {
+const parseResultFromPythonAndGetRange = (resultFromPython: string): AnnotatedRange[] | null => {
     // ResultFromPython is a string of the form: "[[startLine, endline, state, current, text, hash], [startLine, endline, state, current, text, hash], ...]" (the length is indefinite)
     // Parse it and return the list of ranges to select:
 
@@ -877,7 +827,7 @@ const getCurrentRangesFromPython = async (
     return ranges_out;
 };
 
-export const getTextInRanges = (ranges: AnnotatedRange[]): string[] => {
+const getTextInRanges = (ranges: AnnotatedRange[]): string[] => {
     let text: string[] = [];
     let editor = window.activeTextEditor;
     if (!editor) return text;
@@ -890,26 +840,26 @@ export const getTextInRanges = (ranges: AnnotatedRange[]): string[] => {
 };
 
 const HighlightSynced = window.createTextEditorDecorationType({
-    backgroundColor: { id: `jupyter.syncedCell` },
-    borderColor: { id: `jupyter.syncedCell` },
+    backgroundColor: { id: `reactivejupyter.syncedCell` },
+    borderColor: { id: `reactivejupyter.syncedCell` },
     borderWidth: '0px',
     borderStyle: 'solid'
 });
 const HighlightSyncedCurrent = window.createTextEditorDecorationType({
-    backgroundColor: { id: `jupyter.syncedCurrentCell` },
-    borderColor: { id: `jupyter.syncedCurrentCell` },
+    backgroundColor: { id: `reactivejupyter.syncedCurrentCell` },
+    borderColor: { id: `reactivejupyter.syncedCurrentCell` },
     borderWidth: '0px',
     borderStyle: 'solid'
 });
 const HighlightOutdated = window.createTextEditorDecorationType({
-    backgroundColor: { id: `jupyter.outdatedCell` },
-    borderColor: { id: `jupyter.outdatedCell` },
+    backgroundColor: { id: `reactivejupyter.outdatedCell` },
+    borderColor: { id: `reactivejupyter.outdatedCell` },
     borderWidth: '0px',
     borderStyle: 'solid'
 });
 const HighlightOutdatedCurrent = window.createTextEditorDecorationType({
-    backgroundColor: { id: `jupyter.outdatedCurrentCell` },
-    borderColor: { id: `jupyter.outdatedCurrentCell` },
+    backgroundColor: { id: `reactivejupyter.outdatedCurrentCell` },
+    borderColor: { id: `reactivejupyter.outdatedCurrentCell` },
     borderWidth: '0px',
     borderStyle: 'solid'
 });
@@ -1021,19 +971,25 @@ export class CellCodelensProvider implements vscode.CodeLensProvider {
                 new vscode.CodeLens(new vscode.Range(this.range.start.line, 0, this.range.end.line, 0), {
                     title: 'sync upstream',
                     tooltip: 'Run all outdated code upstream, including this cell',
-                    command: 'jupyter.sync-upstream',
+                    command: 'reactivejupyter.sync-upstream',
                     arguments: [this.range]
                 }),
                 new vscode.CodeLens(new vscode.Range(this.range.start.line, 0, this.range.end.line, 0), {
                     title: 'sync downstream',
                     tooltip: 'Run all outdated code downstream, including this cell',
-                    command: 'jupyter.sync-downstream',
+                    command: 'reactivejupyter.sync-downstream',
                     arguments: [this.range]
                 }),
                 new vscode.CodeLens(new vscode.Range(this.range.start.line, 0, this.range.end.line, 0), {
-                    title: 'sync all',
+                    title: 'sync current',
+                    tooltip: 'Run current block of code, if all its upstream code is up to date',
+                    command: 'reactivejupyter.sync-current',
+                    arguments: [this.range]
+                }),
+                new vscode.CodeLens(new vscode.Range(this.range.start.line, 0, this.range.end.line, 0), {
+                    title: 'sync upstream and downstream',
                     tooltip: 'Run all outdated code upstream and downstream, including this cell',
-                    command: 'jupyter.sync-all',
+                    command: 'reactivejupyter.sync-upstream-and-downstream',
                     arguments: [this.range]
                 })
             ];
@@ -1058,13 +1014,13 @@ export class InitialCodelensProvider implements vscode.CodeLensProvider {
                 new vscode.CodeLens(new vscode.Range(0, 0, 0, 0), {
                     title: '$(debug-start) Initialize Reactive Python',
                     tooltip: 'Initialize Reactive Python on the current file',
-                    command: 'jupyter.initialize-reactive-python-extension'
+                    command: 'reactivejupyter.initialize-reactive-python-extension'
                     // arguments: [this.range] // Wanna pass the editor uri?
                 }),
                 new vscode.CodeLens(new vscode.Range(0, 0, 0, 0), {
                     title: 'Sync all Stale code',
                     tooltip: 'Sync all Stale code in current file',
-                    command: 'jupyter.sync-all'
+                    command: 'reactivejupyter.sync-all'
                     // arguments: [this.range] // Wanna pass the editor uri?
                 })
             ];
@@ -1083,7 +1039,7 @@ export class InitialCodelensProvider implements vscode.CodeLensProvider {
 
 
 
-export function createPreparePythonEnvForReactivePythonAction(globalState: Map<string, string>, output: OutputChannel) {
+function createPreparePythonEnvForReactivePythonAction(globalState: Map<string, string>, output: OutputChannel) {
     async function preparePythonEnvForReactivePythonAction() {
 
         let command = scriptCode + '\n\n\n"Reactive Python Activated"\n';
@@ -1121,7 +1077,7 @@ export function createPreparePythonEnvForReactivePythonAction(globalState: Map<s
     return preparePythonEnvForReactivePythonAction;
 }
 
-export function createComputeAction(config: {
+function createComputeAction(config: {
     rebuild: boolean;
     current_line?: number | undefined | null;
     upstream: boolean;
@@ -1145,7 +1101,7 @@ export function createComputeAction(config: {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // ACTIVATION
-////////////////////////////////////////////////////////////////////////////////////////////////////   class_weight={0: 0.9}
+////////////////////////////////////////////////////////////////////////////////////////////////////   
 
 
 const queue: any[] = [];
@@ -1172,7 +1128,7 @@ export const globalState: Map<string, string> = new Map();
 export function activate(context: ExtensionContext) {
     const jupyterExt = extensions.getExtension<Jupyter>('ms-toolsai.jupyter');
     if (!jupyterExt) {
-        throw new Error('The Jupyter Extension not installed. Please install it and try again.');
+        throw new Error('The Jupyter Extension not installed. Please install it and restart VSCode.');
     }
     if (!jupyterExt.isActive) {
         jupyterExt.activate();
@@ -1190,7 +1146,7 @@ export function activate(context: ExtensionContext) {
 
 
 
-export async function defineAllCommands(context: ExtensionContext, output: OutputChannel, globalState: Map<string, string>
+async function defineAllCommands(context: ExtensionContext, output: OutputChannel, globalState: Map<string, string>
 ) {
     // context.subscriptions.push(
     // 	commands.registerCommand('jupyterKernelExecution.listKernels', async () => {
@@ -1209,22 +1165,26 @@ export async function defineAllCommands(context: ExtensionContext, output: Outpu
     // The command has been defined in the package.json file // Now provide the implementation of the command with registerCommand // The commandId parameter must match the command field in package.json
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            'jupyter.initialize-reactive-python-extension',
+            'reactivejupyter.initialize-reactive-python-extension',
             createPreparePythonEnvForReactivePythonAction(globalState, output)
         )
     );
     context.subscriptions.push(
-        vscode.commands.registerCommand('jupyter.sync-downstream', createComputeAction({ rebuild: true, upstream: false, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output))
+        vscode.commands.registerCommand('reactivejupyter.sync-downstream', createComputeAction({ rebuild: true, upstream: false, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output))
     );
     context.subscriptions.push(
-        vscode.commands.registerCommand('jupyter.sync-upstream', createComputeAction({ rebuild: true, upstream: true, downstream: false, stale_only: true, to_launch_compute: true }, globalState, output))
+        vscode.commands.registerCommand('reactivejupyter.sync-upstream', createComputeAction({ rebuild: true, upstream: true, downstream: false, stale_only: true, to_launch_compute: true }, globalState, output))
     );
     context.subscriptions.push(
-        vscode.commands.registerCommand('jupyter.sync-upstream-and-downstream', createComputeAction({ rebuild: true, upstream: true, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output))
+        vscode.commands.registerCommand('reactivejupyter.sync-upstream-and-downstream', createComputeAction({ rebuild: true, upstream: true, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output))
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('jupyter.sync-all', createComputeAction({ rebuild: true, current_line: null, upstream: true, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output))
+        vscode.commands.registerCommand('reactivejupyter.sync-current', createComputeAction({ rebuild: true, upstream: false, downstream: false, stale_only: false, to_launch_compute: true }, globalState, output))
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('reactivejupyter.sync-all', createComputeAction({ rebuild: true, current_line: null, upstream: true, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output))
     );
 
     // await preparePythonEnvForReactivePythonAction(output);
@@ -1311,9 +1271,9 @@ export async function defineAllCommands(context: ExtensionContext, output: Outpu
     // }
 
     ///////// CodeLenses: ///////////////////////
-    // Add a codelens above the line where the cursor is, that launches the "jupyter.test-command" command:
+    // Add a codelens above the line where the cursor is, that launches the "reactivejupyter.test-command" command:
     // const codelensProvider = new MyCodeLensProvider();
     // const disposable = languages.registerCodeLensProvider({ language: 'python' }, codelensProvider);
     // context.subscriptions.push(disposable);
-    // HINT: ONE version of this is /Users/michele.tasca/Documents/vscode-extensions/vscode-reactive-jupyter/src/interactive-window/editor-integration/codelensprovider.ts !!
+    // HINT: ONE version of this is /Users/michele.tasca/Documents/vscode-extensions/vscode-reactivejupyter/src/interactive-window/editor-integration/codelensprovider.ts !!
 }
