@@ -672,7 +672,7 @@ const getEditorAllText = (editor: TextEditor): { text: string | null } => {
 function formatTextAsPythonString(text: string) {
     text = text.replace(/\\/g, '\\\\');
     // >> You MIGHT be interested in
-    // /Users/michele.tasca/Documents/vscode-extensions/vscode-reactivejupyter/src/platform/terminals/codeExecution/codeExecutionHelper.node.ts
+    // /Users/michele.tasca/Documents/vscode-extensions/vscode-reactive-jupyter/src/platform/terminals/codeExecution/codeExecutionHelper.node.ts
     //  >> CodeExecutionHelper >> normalizeLines  ...
     text = text.replace(/'/g, "\\'");
     text = text.replace(/"/g, '\\"');
@@ -971,25 +971,25 @@ export class CellCodelensProvider implements vscode.CodeLensProvider {
                 new vscode.CodeLens(new vscode.Range(this.range.start.line, 0, this.range.end.line, 0), {
                     title: 'sync upstream',
                     tooltip: 'Run all outdated code upstream, including this cell',
-                    command: 'reactivejupyter.sync-upstream',
+                    command: 'reactive-jupyter.sync-upstream',
                     arguments: [this.range]
                 }),
                 new vscode.CodeLens(new vscode.Range(this.range.start.line, 0, this.range.end.line, 0), {
                     title: 'sync downstream',
                     tooltip: 'Run all outdated code downstream, including this cell',
-                    command: 'reactivejupyter.sync-downstream',
+                    command: 'reactive-jupyter.sync-downstream',
                     arguments: [this.range]
                 }),
                 new vscode.CodeLens(new vscode.Range(this.range.start.line, 0, this.range.end.line, 0), {
                     title: 'sync current',
                     tooltip: 'Run current block of code, if all its upstream code is up to date',
-                    command: 'reactivejupyter.sync-current',
+                    command: 'reactive-jupyter.sync-current',
                     arguments: [this.range]
                 }),
                 new vscode.CodeLens(new vscode.Range(this.range.start.line, 0, this.range.end.line, 0), {
                     title: 'sync upstream and downstream',
                     tooltip: 'Run all outdated code upstream and downstream, including this cell',
-                    command: 'reactivejupyter.sync-upstream-and-downstream',
+                    command: 'reactive-jupyter.sync-upstream-and-downstream',
                     arguments: [this.range]
                 })
             ];
@@ -1014,13 +1014,13 @@ export class InitialCodelensProvider implements vscode.CodeLensProvider {
                 new vscode.CodeLens(new vscode.Range(0, 0, 0, 0), {
                     title: '$(debug-start) Initialize Reactive Python',
                     tooltip: 'Initialize Reactive Python on the current file',
-                    command: 'reactivejupyter.initialize-reactive-python-extension'
+                    command: 'reactive-jupyter.initialize-reactive-python-extension'
                     // arguments: [this.range] // Wanna pass the editor uri?
                 }),
                 new vscode.CodeLens(new vscode.Range(0, 0, 0, 0), {
                     title: 'Sync all Stale code',
                     tooltip: 'Sync all Stale code in current file',
-                    command: 'reactivejupyter.sync-all'
+                    command: 'reactive-jupyter.sync-all'
                     // arguments: [this.range] // Wanna pass the editor uri?
                 })
             ];
@@ -1165,26 +1165,26 @@ async function defineAllCommands(context: ExtensionContext, output: OutputChanne
     // The command has been defined in the package.json file // Now provide the implementation of the command with registerCommand // The commandId parameter must match the command field in package.json
     context.subscriptions.push(
         vscode.commands.registerCommand(
-            'reactivejupyter.initialize-reactive-python-extension',
+            'reactive-jupyter.initialize-reactive-python-extension',
             createPreparePythonEnvForReactivePythonAction(globalState, output)
         )
     );
     context.subscriptions.push(
-        vscode.commands.registerCommand('reactivejupyter.sync-downstream', createComputeAction({ rebuild: true, upstream: false, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output))
+        vscode.commands.registerCommand('reactive-jupyter.sync-downstream', createComputeAction({ rebuild: true, upstream: false, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output))
     );
     context.subscriptions.push(
-        vscode.commands.registerCommand('reactivejupyter.sync-upstream', createComputeAction({ rebuild: true, upstream: true, downstream: false, stale_only: true, to_launch_compute: true }, globalState, output))
+        vscode.commands.registerCommand('reactive-jupyter.sync-upstream', createComputeAction({ rebuild: true, upstream: true, downstream: false, stale_only: true, to_launch_compute: true }, globalState, output))
     );
     context.subscriptions.push(
-        vscode.commands.registerCommand('reactivejupyter.sync-upstream-and-downstream', createComputeAction({ rebuild: true, upstream: true, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output))
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('reactivejupyter.sync-current', createComputeAction({ rebuild: true, upstream: false, downstream: false, stale_only: false, to_launch_compute: true }, globalState, output))
+        vscode.commands.registerCommand('reactive-jupyter.sync-upstream-and-downstream', createComputeAction({ rebuild: true, upstream: true, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output))
     );
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('reactivejupyter.sync-all', createComputeAction({ rebuild: true, current_line: null, upstream: true, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output))
+        vscode.commands.registerCommand('reactive-jupyter.sync-current', createComputeAction({ rebuild: true, upstream: false, downstream: false, stale_only: false, to_launch_compute: true }, globalState, output))
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('reactive-jupyter.sync-all', createComputeAction({ rebuild: true, current_line: null, upstream: true, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output))
     );
 
     // await preparePythonEnvForReactivePythonAction(output);
@@ -1271,9 +1271,9 @@ async function defineAllCommands(context: ExtensionContext, output: OutputChanne
     // }
 
     ///////// CodeLenses: ///////////////////////
-    // Add a codelens above the line where the cursor is, that launches the "reactivejupyter.test-command" command:
+    // Add a codelens above the line where the cursor is, that launches the "reactive-jupyter.test-command" command:
     // const codelensProvider = new MyCodeLensProvider();
     // const disposable = languages.registerCodeLensProvider({ language: 'python' }, codelensProvider);
     // context.subscriptions.push(disposable);
-    // HINT: ONE version of this is /Users/michele.tasca/Documents/vscode-extensions/vscode-reactivejupyter/src/interactive-window/editor-integration/codelensprovider.ts !!
+    // HINT: ONE version of this is /Users/michele.tasca/Documents/vscode-extensions/vscode-reactive-jupyter/src/interactive-window/editor-integration/codelensprovider.ts !!
 }

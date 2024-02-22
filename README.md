@@ -2,40 +2,51 @@
 # A Reactive Python Extension for Visual Studio Code
 <p align="center">
 <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg">
-<img alt="PyPI - Python Version" src="https://img.shields.io/pypi/pyversions/fastapi-crudrouter">
+<img alt="PyPI - Python Version" src="https://img.shields.io/pypi/pyversions/networkx">
 </p>
 
 
 
-An experimental [Visual Studio Code](https://code.visualstudio.com/) extension to add support for **Reactive Execution** of a Python script.
+A simple [Visual Studio Code](https://code.visualstudio.com/) extension to add support for **Reactive Execution** of a Python script.
 
-It is a fork of the [Jupyter Extension](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.jupyter) for Visual Studio Code.
+
+This extension performs simple Static Code Analysis to find dependencies between the various statements in a Python script. When you modify a line in a file, it will be marked as Stale together with all the lines that depend on it.
+
 
 
 # Demo:
+
 https://github.com/micoloth/vscode-reactive-jupyter/assets/12880257/f363b91e-c8a3-450a-a185-45ee7d291978
 
+# Usage:
 
-# Installation:
+Open a Python file. Initialize this extension by clicking the "Initialize Reactive Python" codelens at the top of the editor, or launching the `Initialize Reactive Python` command from the command palette.
 
-This project is a fork of the official [Jupyter Extension](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.jupyter) for Visual Studio Code, since it relies heavily on capabilities developed there.
+This will start a new Jupyter Kernel in an interactive window.
 
-Because the development of that extension is tightly controlled by the [Microsoft](https://github.com/microsoft) team (see [here](https://github.com/microsoft/vscode-jupyter/discussions/13331), I won't go into the details), this extension cannot be published on the official [VSCode Marketplace](https://marketplace.visualstudio.com/).
+From there, you can execute code statements using the CodeLenses that appear over the code, or with these shortcuts:
 
-You can use this extension by:
- -  downloading the published `.vsix` extension file 
- - Dropping it into the extensions folder of your VSCode installation, as described [here](https://code.visualstudio.com/docs/editor/extension-marketplace#_install-from-a-vsix) 
-  - Uninstalling the original Jupyter Extension, if you have it installed, since this extension bundles the original one, and this would cause conflicts.
+  - `shift+cmd+enter`: Sync all the stale code blocks in the file.
+  - `shift+cmd+up shift+cmd+enter`: Sync the current code block and all the code blocks the current code blocks depends on. (i.e. all the Upstream code)
+  - `shift+cmd+down shift+cmd+enter`: Sync the current code block and all the code blocks that depend on it (i.e. all the Downstream code)
+  - `shift+enter`: Sync the current code block, if all the upstream code is already synced.
+
 
 # Limitations
 
-`vscode-reactive-jupyter` works by performing a simple Static Code Analysis of a Python script to find dependencies between the various statements.
+Currently, `reactive-jupyter` works by performing simple Static Code Analysis of a Python script to find dependencies between the various statements.
 
-Because of the very imperative nature of the Python language, it is impossible to reliably capture the effects of **functions that dynamically modify their arguments**.
+Because of the very imperative nature of the Python language, it is impossible to reliably capture the effects of **impure** statements, i.e. statements that **modify a variable in place**.
 
-This extension alwasy assumes that functions are **pure**, i.e. they don't have **side effects**.
+These are not handled by this extension, and will not trigger the execution of the statements that depend on them.
 
-This means that impure statements like `mylist.append(1)` or `model.train()` will not trigger the execution of the statements that depend on them.
+By default, try to write your script in a Functional style:
+ - Don't reassign variable with the same name
+ - Only write **pure** functions.
+
+This makes your code easier to reason about, for humans as well as for computers.
+
+Still, some impure statements, like `mylist.append(1)` or `model.train()`, are inevitable. 
 
 As a workaround for this limitation, you can do 2 things:
  - Always wrap your impure statements into a function which returns the mutated object in the end, and reassign the variable. For example:
@@ -50,9 +61,9 @@ As a workaround for this limitation, you can do 2 things:
 
  - When you perform an impure operation, always join it to a statement that reassigns the variable to itself, like this: `mylist = mylist`. This is free in Python, and will correctly propagate the dependency to the next statements.
 
-This second methods requires joining several statements into a single execution "cell", that will always be executed as a single unit.
+This second methods requires joining several statements into a single execution "block" or "cell", that will always be executed as a single unit.
 
-There are 2 ways of doing this in `vscode-reactive-jupyter`:
+There are 2 ways of doing this in `reactive-jupyter`:
 
  - Simply put the statements on a single line. So, 
   
@@ -62,7 +73,7 @@ There are 2 ways of doing this in `vscode-reactive-jupyter`:
 
     will always be executed together, and will work as expected.
   
- - For longer/ more complex statements, you can use the special Cell Markers, `# % [` and `# % ]` to mark the beginning and the end of a cell: so, 
+ - For longer/ more complex statements, you can use the special Cell Markers, `# % [` and `# % ]` to mark the beginning and the end of a block: so, 
   
       ```python
       # % [
@@ -72,4 +83,4 @@ There are 2 ways of doing this in `vscode-reactive-jupyter`:
       # % ]
       ```
 
-    will be joined into a single cell, and will be propagated as expected.
+    will be joined into a single block, and will be propagated as expected.

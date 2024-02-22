@@ -1,17 +1,35 @@
 {
-	"name": "reactivejupyter",
+	"name": "reactive-jupyter",
 	"displayName": "Reactive Jupyter",
-	"description": "Jupyter notebook support, with Reactive interactive programming and computing and support for Intellisense, debugging, and more.",
+	"description": "Reactive execution of a Python script. Keep your Jupyter kernel in sync with your code.",
 	"publisher": "micoloth",
 	"author": {
-		"name": "Mike Tasca"
+		"name": "Mike Tasca",
+		"email": "mike.tasca.1@gmail.com"
 	},
+	"repository": {
+		"type": "git",
+		"url": ""
+	},
+	"homepage": "https://github.com/micoloth/vscode-reactive-jupyter",
+	"bugs": {
+		"url": "https://github.com/micoloth/vscode-reactive-jupyter/issues"
+	},
+	"preview": true,
+	"private": true,
+	"license": "MIT",
+	"qna": "https://github.com/micoloth/vscode-reactive-jupyter/issues",
+	"icon": "icon.png",
+    "galleryBanner": {
+        "color": "#ffffff",
+        "theme": "light"
+    },
 	"version": "0.0.1",
 	"engines": {
 		"vscode": "^1.86.0"
 	},
 	"categories": [
-		"Other"
+		"Other", "Data Science", "Machine Learning", "Notebooks"
 	],
 	"keywords": [
 		"jupyter",
@@ -76,59 +94,59 @@
 				"category": "Jupyter Kernel API"
 			},
 			{
-				"command": "reactivejupyter.initialize-reactive-python-extension",
+				"command": "reactive-jupyter.initialize-reactive-python-extension",
 				"title": "Initialize Reactive Python",
 				"category": "Reactive Python"
 			},
 			{
-				"command": "reactivejupyter.sync-downstream",
+				"command": "reactive-jupyter.sync-downstream",
 				"title": "Refresh all Downstream",
 				"category": "Reactive Python"
 			},
 			{
-				"command": "reactivejupyter.sync-upstream",
+				"command": "reactive-jupyter.sync-upstream",
 				"title": "Refresh all Upstream",
 				"category": "Reactive Python"
 			},
 			{
-				"command": "reactivejupyter.sync-upstream-and-downstream",
+				"command": "reactive-jupyter.sync-upstream-and-downstream",
 				"title": "Refresh all Upstream and Downstream of the current cell",
 				"category": "Reactive Python"
 			},
 			{
-				"command": "reactivejupyter.sync-all",
+				"command": "reactive-jupyter.sync-all",
 				"title": "Refresh all Stale Blocks",
 				"category": "Reactive Python"
 			},
 			{
-				"command": "reactivejupyter.sync-current",
+				"command": "reactive-jupyter.sync-current",
 				"title": "Run current block",
 				"category": "Reactive Python"
 			},
 			{
-				"command": "reactivejupyter.test-command",
+				"command": "reactive-jupyter.test-command",
 				"title": "Refresh all Downstream",
 				"category": "Reactive Python"
 			}
 		],
 		"keybindings": [
             {
-                "command": "reactivejupyter.sync-all",
+                "command": "reactive-jupyter.sync-all",
                 "key": "shift+cmd+enter",
                 "when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
             },
             {
-                "command": "reactivejupyter.sync-upstream",
+                "command": "reactive-jupyter.sync-upstream",
                 "key": "shift+cmd+up shift+cmd+enter",
                 "when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
             },
             {
-                "command": "reactivejupyter.sync-downstream",
+                "command": "reactive-jupyter.sync-downstream",
                 "key": "shift+cmd+down shift+cmd+enter",
                 "when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
             },
             {
-                "command": "reactivejupyter.sync-current",
+                "command": "reactive-jupyter.sync-current",
                 "key": "shift+enter",
                 "when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
             }
