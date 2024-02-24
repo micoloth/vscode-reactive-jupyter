@@ -789,7 +789,7 @@ class ReactivePythonDagBuilderUtils__():
                 if node == '_START_': 
                     continue
                 node_data = new_dag.nodes[node]
-                node_vars = node_data['input_vars'] | node_data['errored_input_vars'] # | node_data['output_vars'] | node_data['errored_output_vars']
+                node_vars = node_data['input_vars'] | node_data['errored_input_vars'] | node_data['output_vars'] | node_data['errored_output_vars']
                 node_parents = list(new_dag.predecessors(node))
                 if any(var in all_outputted_stale_vars for var in node_vars) or any(new_dag.nodes[parent]['stale'] for parent in node_parents):
                     node_data['stale'] = True

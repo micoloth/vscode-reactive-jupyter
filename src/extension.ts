@@ -1046,7 +1046,7 @@ function createPreparePythonEnvForReactivePythonAction(globalState: Map<string, 
         let editor = window.activeTextEditor;
         if (!editor) { return; }
         
-        if (output) { output.show(true); }
+        // if (output) { output.show(true); }
 
         if (getState(globalState, editor) == false) { globalState.set(editorConnectionStateKey(editor.document.uri.toString()), State.initializable); }
 
