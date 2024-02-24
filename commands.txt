@@ -24,11 +24,11 @@ NAME: vscode-reactive-jupyter-publish
 
 vsce login micoloth
 
-# TO BUNDLE:
+# TO BUNDLE:  -- REMEMBER TO BUMP YOUR VERSION !!!
+
+npm i
 npm run esbuild
-
 vsce package
-
 vsce publish
 
 
