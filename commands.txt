@@ -35,7 +35,7 @@ vsce publish
 Extension URL (might take a few minutes): https://marketplace.visualstudio.com/items?itemName=micoloth.reactive-jupyter
 Hub URL: https://marketplace.visualstudio.com/manage/publishers/micoloth/extensions/reactive-jupyter/hub
 
-
+# IT WORKED???
 
 
 
