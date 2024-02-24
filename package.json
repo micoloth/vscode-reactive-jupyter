@@ -20,16 +20,19 @@
 	"license": "MIT",
 	"qna": "https://github.com/micoloth/vscode-reactive-jupyter/issues",
 	"icon": "icon.png",
-    "galleryBanner": {
-        "color": "#ffffff",
-        "theme": "light"
-    },
+	"galleryBanner": {
+		"color": "#ffffff",
+		"theme": "light"
+	},
 	"version": "0.0.1",
 	"engines": {
 		"vscode": "^1.86.0"
 	},
 	"categories": [
-		"Other", "Data Science", "Machine Learning", "Notebooks"
+		"Other",
+		"Data Science",
+		"Machine Learning",
+		"Notebooks"
 	],
 	"keywords": [
 		"jupyter",
@@ -47,7 +50,7 @@
 	"extensionDependencies": [
 		"ms-toolsai.jupyter"
 	],
-	"main": "./out/extension.js",
+	"main": "out/extension.js",
 	"contributes": {
 		"colors": [
 			{
@@ -130,33 +133,37 @@
 			}
 		],
 		"keybindings": [
-            {
-                "command": "reactive-jupyter.sync-all",
-                "key": "shift+cmd+enter",
-                "when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
-            },
-            {
-                "command": "reactive-jupyter.sync-upstream",
-                "key": "shift+cmd+up shift+cmd+enter",
-                "when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
-            },
-            {
-                "command": "reactive-jupyter.sync-downstream",
-                "key": "shift+cmd+down shift+cmd+enter",
-                "when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
-            },
-            {
-                "command": "reactive-jupyter.sync-current",
-                "key": "shift+enter",
-                "when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
-            }
+			{
+				"command": "reactive-jupyter.sync-all",
+				"key": "shift+cmd+enter",
+				"when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
+			},
+			{
+				"command": "reactive-jupyter.sync-upstream",
+				"key": "shift+cmd+up shift+cmd+enter",
+				"when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
+			},
+			{
+				"command": "reactive-jupyter.sync-downstream",
+				"key": "shift+cmd+down shift+cmd+enter",
+				"when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
+			},
+			{
+				"command": "reactive-jupyter.sync-current",
+				"key": "shift+enter",
+				"when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
+			}
 		]
 	},
 	"scripts": {
-		"vscode:prepublish": "npm run compile",
 		"compile": "tsc -b",
 		"lint": "eslint src --ext ts",
-		"watch": "tsc -b --watch"
+		"watch": "tsc -b --watch",
+		"vscode:prepublish": "npm run esbuild-base -- --minify",
+		"esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/main.js --external:vscode --format=cjs --platform=node",
+		"esbuild": "npm run esbuild-base -- --sourcemap",
+		"esbuild-watch": "npm run esbuild-base -- --sourcemap --watch",
+		"test-compile": "tsc -p ./"
 	},
 	"devDependencies": {
 		"@types/node": "14.x",
@@ -165,15 +172,16 @@
 		"@typescript-eslint/eslint-plugin": "^6.7.0",
 		"@typescript-eslint/parser": "^6.7.0",
 		"@vscode/jupyter-extension": "^1.1.0",
+		"esbuild": "^0.20.1",
 		"eslint": "^7.27.0",
 		"typescript": "^5.2.2"
 	},
 	"dependencies": {
+		"@c4312/evt": "^0.1.1",
+		"@jupyterlab/nbformat": "3.1.17",
+		"@jupyterlab/services": "6.1.17",
 		"@vscode/python-extension": "^1.0.5",
-		"uuid": "^9.0.1",
-        "@c4312/evt": "^0.1.1",
-        "fast-deep-equal": "^2.0.1",
-        "@jupyterlab/nbformat": "3.1.17",
-        "@jupyterlab/services": "6.1.17"
+		"fast-deep-equal": "^2.0.1",
+		"uuid": "^9.0.1"
 	}
 }

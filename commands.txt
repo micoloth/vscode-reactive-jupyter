@@ -1,0 +1,74 @@
+
+
+git config user.name "mike-tasca"
+git config user.email "mic.tasca@gmail.com"
+
+git rebase -i --root
+
+set nu
+
+:1,24s/pick/edit/g
+
+npm i --save-dev esbuild
+
+
+sudo npm install -g @vscode/vsce
+
+
+# GUIDE: https://code.visualstudio.com/api/working-with-extensions/publishing-extension#advanced-usage 
+https://learn.microsoft.com/en-in/azure/devops/organizations/accounts/create-organization?view=azure-devops
+
+# This made from here: https://dev.azure.com/miketasca/_usersSettings/tokens
+NAME: vscode-reactive-jupyter-publish
+
+
+vsce login micoloth
+
+# TO BUNDLE:
+npm run esbuild
+
+vsce package
+
+vsce publish
+
+
+Extension URL (might take a few minutes): https://marketplace.visualstudio.com/items?itemName=micoloth.reactive-jupyter
+Hub URL: https://marketplace.visualstudio.com/manage/publishers/micoloth/extensions/reactive-jupyter/hub
+
+
+
+
+
+
+
+
+
+
+
+############################ REPLACE COMMIT AUTHORS:
+
+####### scriptt.sh:
+#!/bin/bash
+
+git filter-branch --env-filter '
+WRONG_EMAIL="michele.tasca@adevinta.com"
+NEW_NAME="mike-tasca" # github username
+NEW_EMAIL="mic.tasca@gmail.com"
+if [ "$GIT_COMMITTER_EMAIL" = "$WRONG_EMAIL" ]
+then
+    export GIT_COMMITTER_NAME="$NEW_NAME"
+    export GIT_COMMITTER_EMAIL="$NEW_EMAIL"
+fi
+if [ "$GIT_AUTHOR_EMAIL" = "$WRONG_EMAIL" ]
+then
+    export GIT_AUTHOR_NAME="$NEW_NAME"
+    export GIT_AUTHOR_EMAIL="$NEW_EMAIL"
+fi
+' --tag-name-filter cat -- --branches --tags
+
+
+####### IN YOUR COMMANDS:
+# chmod it:
+chmod +x ./scriptt.sh
+# run it:
+./scriptt.sh

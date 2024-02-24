@@ -60,3 +60,4 @@ src/test/datascience/.venv*
 l10n/
 
 out
+secrets.txt
