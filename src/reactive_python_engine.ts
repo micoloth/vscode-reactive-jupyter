@@ -896,12 +896,16 @@ class ReactivePythonDagBuilderUtils__():
             result = [pr(current_dag.nodes[n], is_current=(n==current_node), include_code=include_code) for n in nodes_to_return]
             result = json.dumps(result)
             return result
+        
+        def set_all_descendants_to_stale(dag, node):
+            for descendant in descendants(dag, node):
+                dag.nodes[descendant]['stale'] = True
 
-        return dagnodes_to_dag, ast_to_dagnodes, draw_dag, update_staleness_info_in_new_dag, get_input_variables_for, get_output_variables_for, annotate, dag_to_node_ranges, fuse_nodes, node_repr_hash
+        return dagnodes_to_dag, ast_to_dagnodes, draw_dag, update_staleness_info_in_new_dag, get_input_variables_for, get_output_variables_for, annotate, dag_to_node_ranges, fuse_nodes, node_repr_hash, set_all_descendants_to_stale
     
 
     def __init__(self):
-        self.dagnodes_to_dag, self.ast_to_dagnodes, self.draw_dag, self.update_staleness_info_in_new_dag, self.get_input_variables_for, self.get_output_variables_for, self.annotate, self.dag_to_node_ranges, self.fuse_nodes, self.node_repr_hash = self.define_reactive_python_utils()
+        self.dagnodes_to_dag, self.ast_to_dagnodes, self.draw_dag, self.update_staleness_info_in_new_dag, self.get_input_variables_for, self.get_output_variables_for, self.annotate, self.dag_to_node_ranges, self.fuse_nodes, self.node_repr_hash, self.set_all_descendants_to_stale = self.define_reactive_python_utils()
         self.syntax_error_range = None  ## type: Optional[DiGraph]
         self.current_dag = None  ## type: Optional[DiGraph]
         self.locked_for_execution = None
@@ -976,6 +980,9 @@ class ReactivePythonDagBuilderUtils__():
         for node in self.current_dag:
             if self.node_repr_hash(self.current_dag.nodes[node]) == hash:
                 self.current_dag.nodes[node]['stale'] = False
+
+                # Additional step: Set ALL its descendants to STALE: # If the node has no Outputs, this has no effect, of course
+                self.set_all_descendants_to_stale(self.current_dag, node)
                 return True
 
     
