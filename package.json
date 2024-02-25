@@ -98,38 +98,38 @@
 			},
 			{
 				"command": "reactive-jupyter.initialize-reactive-python-extension",
-				"title": "Initialize Reactive Python",
-				"category": "Reactive Python"
+				"title": "Initialize Reactive Jupyter",
+				"category": "Reactive Jupyter"
 			},
 			{
 				"command": "reactive-jupyter.sync-downstream",
 				"title": "Refresh all Downstream",
-				"category": "Reactive Python"
+				"category": "Reactive Jupyter"
 			},
 			{
 				"command": "reactive-jupyter.sync-upstream",
 				"title": "Refresh all Upstream",
-				"category": "Reactive Python"
+				"category": "Reactive Jupyter"
 			},
 			{
 				"command": "reactive-jupyter.sync-upstream-and-downstream",
 				"title": "Refresh all Upstream and Downstream of the current cell",
-				"category": "Reactive Python"
+				"category": "Reactive Jupyter"
 			},
 			{
 				"command": "reactive-jupyter.sync-all",
 				"title": "Refresh all Stale Blocks",
-				"category": "Reactive Python"
+				"category": "Reactive Jupyter"
 			},
 			{
 				"command": "reactive-jupyter.sync-current",
 				"title": "Run current block",
-				"category": "Reactive Python"
+				"category": "Reactive Jupyter"
 			},
 			{
 				"command": "reactive-jupyter.test-command",
 				"title": "Refresh all Downstream",
-				"category": "Reactive Python"
+				"category": "Reactive Jupyter"
 			}
 		],
 		"keybindings": [

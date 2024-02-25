@@ -159,7 +159,7 @@ async function executeCodeInInteractiveWindow(
     }
 
     if (!cell) {
-        window.showErrorMessage('Reactive Python: Failed to execute the code in the Interactive Window: No matching cell was identified');
+        window.showErrorMessage('Reactive Jupyter: Failed to execute the code in the Interactive Window: No matching cell was identified');
         console.log(">>Inteactive Execution Result for ", text, ": -> false (case 1)")
         return false;
     }
@@ -186,7 +186,7 @@ async function executeCodeInInteractiveWindow(
         await new Promise((resolve) => setTimeout(resolve, 250));
     }
 
-    window.showErrorMessage('Reactive Python: Failed to execute the code in the Interactive Window: The cell did not finish executing');
+    window.showErrorMessage('Reactive Jupyter: Failed to execute the code in the Interactive Window: The cell did not finish executing');
     console.log(">>Inteactive Execution Result for ", text, ": -> false (case 5)")
     return false;
 
@@ -206,7 +206,7 @@ async function safeExecuteCodeInKernel(
 
     let notebookAndKernel = await getNotebookAndKernel(globalState, editor, true);
     if (!notebookAndKernel) {
-        window.showErrorMessage("Reactive Python: Lost Connection to this editor's Kernel. Please initialize the extension with the command: 'Initialize Reactive Python' or the CodeLens at the top");
+        window.showErrorMessage("Reactive Jupyter: Lost Connection to this editor's Kernel. Please initialize the extension with the command: 'Initialize Reactive Jupyter' or the CodeLens at the top");
         updateState(globalState, editor, State.initializable_messaged);
         return;
     }
@@ -228,7 +228,7 @@ async function safeExecuteCodeInKernelForInitialization(
 
     let notebookAndKernel = await getNotebookAndKernel(globalState, editor, true);
     if (!notebookAndKernel) {
-        window.showErrorMessage("Reactive Python: Kernel Initialization succeeded, but we lost it already... Please try again.");
+        window.showErrorMessage("Reactive Jupyter: Kernel Initialization succeeded, but we lost it already... Please try again.");
         updateState(globalState, editor, State.initializable_messaged);
         return false;
     }
@@ -237,11 +237,11 @@ async function safeExecuteCodeInKernelForInitialization(
     const result = await executeCodeInKernel(command, kernel, null);  // output ?
     if (!isExecutionError(result)) {
         updateState(globalState, editor, State.extension_available);
-        window.showInformationMessage('Reactive Python: The extension is ready to use.');
+        window.showInformationMessage('Reactive Jupyter: The extension is ready to use.');
         return true;
     } else {
         updateState(globalState, editor, State.kernel_available);
-        window.showErrorMessage('Reactive Python: The initialization code could not be executed in the Python Kernel. This is bad...');
+        window.showErrorMessage('Reactive Jupyter: The initialization code could not be executed in the Python Kernel. This is bad...');
         return false;
     }
 }
@@ -260,7 +260,7 @@ async function safeExecuteCodeInInteractiveWindow(
 
     let notebookAndKernel = await getNotebookAndKernel(globalState, editor, true);
     if (!notebookAndKernel) {
-        window.showErrorMessage("Reactive Python: Lost Connection to this editor's Notebook. Please initialize the extension with the command 'Initialize Reactive Python' or the CodeLens at the top");
+        window.showErrorMessage("Reactive Jupyter: Lost Connection to this editor's Notebook. Please initialize the extension with the command 'Initialize Reactive Jupyter' or the CodeLens at the top");
         updateState(globalState, editor, State.initializable_messaged);
         return;
     }
@@ -295,7 +295,7 @@ async function queueComputation(
             if (range.state === 'dependsonotherstalecode') {
                 if (!said_dependsonotherstalecode_message) {
                     let text = range.text.slice(0, 100);
-                    window.showErrorMessage('Reactive Python: ' + text + ' depends on other code that is outdated. Please update the other code first.');
+                    window.showErrorMessage('Reactive Jupyter: ' + text + ' depends on other code that is outdated. Please update the other code first.');
                     said_dependsonotherstalecode_message = true;
                 }   
                 continue;
@@ -306,7 +306,7 @@ async function queueComputation(
 
             const update_result = await safeExecuteCodeInKernel(getSyncRangeCommand(range), activeTextEditor, output, globalState);
             if (!update_result) {
-                vscode.window.showErrorMessage("Reactive Python: Failed to update the range's state in Python: " + range.hash + " -- " + update_result);
+                vscode.window.showErrorMessage("Reactive Jupyter: Failed to update the range's state in Python: " + range.hash + " -- " + update_result);
                 break;
             }
             const refreshed_ranges = await getCurrentRangesFromPython(activeTextEditor, output, globalState, {
@@ -322,7 +322,7 @@ async function queueComputation(
     }
     const update_result = await safeExecuteCodeInKernel(getUnlockCommand(), activeTextEditor, output, globalState);
     if (!update_result) {
-        vscode.window.showErrorMessage('Reactive Python: Failed to unlock the Python kernel: ' + update_result);
+        vscode.window.showErrorMessage('Reactive Jupyter: Failed to unlock the Python kernel: ' + update_result);
     }
     else {
         console.log('>> unlockCommand successful: ', update_result);
@@ -439,7 +439,7 @@ function updateState(globalState: Map<string, string>, editor: TextEditor, newSt
             return;
         }
         else {
-            window.showErrorMessage('Reactive Python: Invalid state transition: ' + currentState + ' -> ' + newState);
+            window.showErrorMessage('Reactive Jupyter: Invalid state transition: ' + currentState + ' -> ' + newState);
             throw new Error('Invalid initial state: ' + newState + ' , please initialize your editor first');
         }
     }
@@ -449,7 +449,7 @@ function updateState(globalState: Map<string, string>, editor: TextEditor, newSt
         console.log(' -> State transition: ' + currentState + ' -> ' + editorConnectionStateKey(uri) + ' : ' + getState(globalState, editor));
     }
     else {
-        window.showErrorMessage('Reactive Python: Invalid state transition: ' + currentState + ' -> ' + newState);
+        window.showErrorMessage('Reactive Jupyter: Invalid state transition: ' + currentState + ' -> ' + newState);
         throw new Error('Invalid state transition: ' + currentState + ' -> ' + newState);
     }
 }
@@ -472,7 +472,7 @@ function checkSettings(globalState: Map<string, string>, editor: TextEditor,) {
     else if (!perFileMode || !shiftEnterOff) {
         if (getState(globalState, editor) !== State.settings_not_ok) { 
             updateState(globalState, editor, State.settings_not_ok); 
-            window.showErrorMessage('Reactive Python: To use Reactive Python please set the Jupyter extension settings to:  - "jupyter.interactiveWindow.creationMode": "perFile"   - "jupyter.interactiveWindow.textEditor.executeSelection": false');
+            window.showErrorMessage('Reactive Jupyter: To use Reactive Jupyter please set the Jupyter extension settings to:  - "jupyter.interactiveWindow.creationMode": "perFile"   - "jupyter.interactiveWindow.textEditor.executeSelection": false');
         }
         return false;
     }
@@ -483,7 +483,7 @@ function checkSettings(globalState: Map<string, string>, editor: TextEditor,) {
 
 function displayInitializationMessageIfNeeded(globalState: Map<string, string>, editor: TextEditor) {
     if (getState(globalState, editor) === State.initializable) {
-        window.showInformationMessage("Reactive Python: Initialize the extension on this File with the command: 'Initialize Reactive Python' or the CodeLens at the top");
+        window.showInformationMessage("Reactive Jupyter: Initialize the extension on this File with the command: 'Initialize Reactive Jupyter' or the CodeLens at the top");
         updateState(globalState, editor, State.initializable_messaged);
     }
 }
@@ -491,8 +491,8 @@ function displayInitializationMessageIfNeeded(globalState: Map<string, string>, 
 async function getKernelNotebook(document: NotebookDocument): Promise<Kernel | undefined> {
     const extension = extensions.getExtension<Jupyter>('ms-toolsai.jupyter');
     if (!extension) {
-        window.showErrorMessage('Reactive Python: Jupyter extension not installed');
-        throw new Error('Reactive Python: Jupyter extension not installed');
+        window.showErrorMessage('Reactive Jupyter: Jupyter extension not installed');
+        throw new Error('Reactive Jupyter: Jupyter extension not installed');
     }
     if (!extension.isActive) { await extension.activate(); }
     const api = extension.exports;
@@ -519,13 +519,13 @@ async function getNotebookAndKernel(globalState: Map<string, string>, editor: Te
     let notebook_uri = globalState.get(editorToIWKey(editor.document.uri.toString()));
     let iWsWCorrectUri = vscode.workspace.notebookDocuments.filter((doc) => doc.uri.toString() === notebook_uri);
     if (iWsWCorrectUri.length === 0) {
-        if (notify) { window.showErrorMessage("Reactive Python: Lost connection to this editor's Interactive Window. Please initialize it with the command: 'Initialize Reactive Python' or the CodeLens at the top ") }
+        if (notify) { window.showErrorMessage("Reactive Jupyter: Lost connection to this editor's Interactive Window. Please initialize it with the command: 'Initialize Reactive Jupyter' or the CodeLens at the top ") }
         return undefined;
     }
     let notebook = iWsWCorrectUri[0];
     let kernel = await getKernelNotebook(notebook);
     if (!kernel) {
-        if (notify) { window.showErrorMessage("Reactive Python: Lost connection to this editor's Python Kernel. Please initialize it with the command 'Initialize Reactive Python' or the CodeLens at the top ") }
+        if (notify) { window.showErrorMessage("Reactive Jupyter: Lost connection to this editor's Python Kernel. Please initialize it with the command 'Initialize Reactive Jupyter' or the CodeLens at the top ") }
         return undefined;
     }
     return [notebook, kernel];
@@ -603,12 +603,12 @@ async function initializeInteractiveWindowAndKernel(globalState: Map<string, str
 
     let state_now = getState(globalState, editor)
     if (state_now === State.initialization_started) {
-        window.showErrorMessage('Reactive Python: Failed to initialize the Interactive Window and the Python Kernel');
+        window.showErrorMessage('Reactive Jupyter: Failed to initialize the Interactive Window and the Python Kernel');
         updateState(globalState, editor, State.initializable_messaged);
         return false;
     }
     else if (state_now === State.kernel_available) {
-        window.showInformationMessage('Reactive Python: Successfully initialized the Interactive Window and the Python Kernel');
+        window.showInformationMessage('Reactive Jupyter: Successfully initialized the Interactive Window and the Python Kernel');
         return true;
     }
     else {
@@ -625,7 +625,7 @@ async function initializeInteractiveWindowAndKernel(globalState: Map<string, str
 // PYTHON COMMANDS AND SNIPPETS
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-const welcomeText = "# Welcome to Reactive Python";
+const welcomeText = "# Welcome to Reactive Jupyter";
 
 const getCommandToGetAllRanges = (
     text: string | null,
@@ -750,7 +750,7 @@ const parseResultFromPythonAndGetRange = (resultFromPython: string): AnnotatedRa
         resultFromPythonParsed = JSON.parse(resultFromPython);
     } catch (e) {
         console.log('Failed to parse result from Python: ' + resultFromPython);
-        vscode.window.showErrorMessage('Reactive Python: Failed to parse JSON result from Python: ' + resultFromPython);
+        vscode.window.showErrorMessage('Reactive Jupyter: Failed to parse JSON result from Python: ' + resultFromPython);
         return null;
     }
     // console.log("6: Here we are: ", resultFromPythonParsed)
@@ -900,7 +900,7 @@ let updateDecorations = async (editor: TextEditor, ranges_out: AnnotatedRange[])
         // If there is a range with a SyntaxError, show a Window message saying that:
         let syntax_error_ranges = ranges_out.filter((r) => (r.state == 'syntaxerror' && !r.current));
         if (syntax_error_ranges.length > 0) {
-            window.showErrorMessage('Reactive Python: Syntax Error at line ' + (syntax_error_ranges[0].range.start.line + 1).toString()); 
+            window.showErrorMessage('Reactive Jupyter: Syntax Error at line ' + (syntax_error_ranges[0].range.start.line + 1).toString()); 
         }
     } catch (error) {
         // console.log('update decorations failed: %O', error);
@@ -1012,8 +1012,8 @@ export class InitialCodelensProvider implements vscode.CodeLensProvider {
             // console.log('>>>>>>>>>>>>>>>>>>INSIDE THE IF. ' + editor);
             let codeLenses = [
                 new vscode.CodeLens(new vscode.Range(0, 0, 0, 0), {
-                    title: '$(debug-start) Initialize Reactive Python',
-                    tooltip: 'Initialize Reactive Python on the current file',
+                    title: '$(debug-start) Initialize Reactive Jupyter',
+                    tooltip: 'Initialize Reactive Jupyter on the current file',
                     command: 'reactive-jupyter.initialize-reactive-python-extension'
                     // arguments: [this.range] // Wanna pass the editor uri?
                 }),
@@ -1042,7 +1042,7 @@ export class InitialCodelensProvider implements vscode.CodeLensProvider {
 function createPreparePythonEnvForReactivePythonAction(globalState: Map<string, string>, output: OutputChannel) {
     async function preparePythonEnvForReactivePythonAction() {
 
-        let command = scriptCode + '\n\n\n"Reactive Python Activated"\n';
+        let command = scriptCode + '\n\n\n"Reactive Jupyter Activated"\n';
         let editor = window.activeTextEditor;
         if (!editor) { return; }
         

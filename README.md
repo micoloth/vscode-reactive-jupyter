@@ -1,5 +1,5 @@
 
-# A Reactive Python Extension for Visual Studio Code
+# A Reactive Jupyter Extension for Visual Studio Code
 <p align="center">
 <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg">
 <img alt="PyPI - Python Version" src="https://img.shields.io/pypi/pyversions/networkx">
@@ -33,7 +33,7 @@ This extension is in **BETA**. Please don't expect it to run flawlessly. Also, r
 
   3. Open a Python file.
   
-  4. Initialize Reactive Jupyter by clicking the "Initialize Reactive Python" codelens at the top of the editor, or launch the `Initialize Reactive Python` command from the command palette.  This will start a new Jupyter Kernel in an interactive window.
+  4. Initialize Reactive Jupyter by clicking the "Initialize Reactive Jupyter" codelens at the top of the editor, or launch the `Initialize Reactive Jupyter` command from the command palette.  This will start a new Jupyter Kernel in an interactive window.
 
 # Shortcuts:
 
