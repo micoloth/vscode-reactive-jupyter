@@ -1052,6 +1052,12 @@ function createPreparePythonEnvForReactivePythonAction(globalState: Map<string, 
 
         checkSettings(globalState, editor);
 
+        // If you are not viewing a Python file, show a message and return:
+        if (editor.document.languageId !== 'python') {
+            window.showErrorMessage('Reactive Jupyter: This extension only works when editing Python files. Please open a Python file and try again');
+            return;
+        }
+
         if (getState(globalState, editor) == (State.initializable) || getState(globalState, editor) == (State.initializable_messaged)) {
             let success = await initializeInteractiveWindowAndKernel(globalState, editor);
             if (!success) { return; }
