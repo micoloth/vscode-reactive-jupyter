@@ -21,14 +21,23 @@ This extension is in **BETA**. Please don't expect it to run flawlessly. Also, r
 ![demo](https://github.com/micoloth/vscode-reactive-jupyter/assets/12880257/0e713fd5-ea46-498e-866f-f5c5aa18658b)
 
 
+# Activation:
 
-# Commands and Shortcuts:
+  1. Install the extension. The [Jupyter](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.jupyter) extension should be installed as well.
 
-When you open a Python file, initialize this extension by clicking the "Initialize Reactive Python" codelens at the top of the editor, or launching the `Initialize Reactive Python` command from the command palette.
+  2. Add these settings for the Jupyter extension in your `settings.json` file: these are required to work with Reactive Jupyter. If they set differently, you will be prompted to change them.
 
-This will start a new Jupyter Kernel in an interactive window.
+    "jupyter.interactiveWindow.creationMode": "perFile",
+    "jupyter.interactiveWindow.textEditor.executeSelection": false
+    
 
-From there, you can execute code statements using the CodeLenses that appear over the code, or with these shortcuts:
+  3. Open a Python file.
+  
+  4. Initialize Reactive Jupyter by clicking the "Initialize Reactive Python" codelens at the top of the editor, or launch the `Initialize Reactive Python` command from the command palette.  This will start a new Jupyter Kernel in an interactive window.
+
+# Shortcuts:
+
+You can execute code statements using the CodeLenses that appear over the code, or with these shortcuts:
 
   - `shift+cmd+enter`: Sync all the stale code blocks in the file.
   - `shift+cmd+up shift+cmd+enter`: Sync the current code block and all the code blocks the current code blocks depends on. (i.e. all the Upstream code)
