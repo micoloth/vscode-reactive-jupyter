@@ -17,7 +17,7 @@ This extension performs simple Static Code Analysis to find dependencies between
 # Demo:
 
 
-![demo](https://github.com/micoloth/vscode-reactive-jupyter/assets/12880257/f071263f-8527-4450-ae37-d04cae45218a)
+![demo](https://github.com/micoloth/vscode-reactive-jupyter/assets/12880257/0e713fd5-ea46-498e-866f-f5c5aa18658b)
 
 
 
