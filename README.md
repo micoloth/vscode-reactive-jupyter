@@ -43,9 +43,9 @@ This extension is in **PREVIEW**. Please don't expect it to run flawlessly. Also
 
 You can execute code statements using the CodeLenses that appear over the code, or with these shortcuts:
 
-  - `shift+cmd+enter`: Sync all the stale code blocks in the file.
-  - `shift+cmd+up shift+cmd+enter`: Sync the current code block and all the code blocks the current code blocks depends on. (i.e. all the Upstream code)
-  - `shift+cmd+down shift+cmd+enter`: Sync the current code block and all the code blocks that depend on it (i.e. all the Downstream code)
+  -  `shift+ctrl+enter` (Windows/Linux) or `shift+cmd+enter` (MacOS): Sync all the stale code blocks in the file.
+  - `shift+ctrl+up shift+ctrl+enter` (Windows/Linux) or `shift+cmd+up shift+cmd+enter` (MacOS): Sync the current code block and all the code blocks the current code blocks depends on. (i.e. all the Upstream code)
+  - `shift+ctrl+down shift+ctrl+enter` (Windows/Linux) or `shift+cmd+down shift+cmd+enter` (MacOS): Sync the current code block and all the code blocks that depend on it (i.e. all the Downstream code)
   - `shift+enter`: Sync the current code block, if all the upstream code is already synced.
 
 

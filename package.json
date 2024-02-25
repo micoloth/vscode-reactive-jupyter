@@ -136,17 +136,32 @@
 			{
 				"command": "reactive-jupyter.sync-all",
 				"key": "shift+cmd+enter",
-				"when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
+				"when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused && isMac"
 			},
 			{
 				"command": "reactive-jupyter.sync-upstream",
 				"key": "shift+cmd+up shift+cmd+enter",
-				"when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
+				"when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused && isMac"
 			},
 			{
 				"command": "reactive-jupyter.sync-downstream",
 				"key": "shift+cmd+down shift+cmd+enter",
-				"when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
+				"when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused && isMac"
+			},
+			{
+				"command": "reactive-jupyter.sync-all",
+				"key": "shift+ctrl+enter",
+				"when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused && !isMac"
+			},
+			{
+				"command": "reactive-jupyter.sync-upstream",
+				"key": "shift+ctrl+up shift+ctrl+enter",
+				"when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused && !isMac"
+			},
+			{
+				"command": "reactive-jupyter.sync-downstream",
+				"key": "shift+ctrl+down shift+ctrl+enter",
+				"when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused && !isMac"
 			},
 			{
 				"command": "reactive-jupyter.sync-current",
