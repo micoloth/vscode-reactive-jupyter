@@ -12,7 +12,7 @@ A simple [Visual Studio Code](https://code.visualstudio.com/) extension to add s
 
 This extension performs simple Static Code Analysis to find dependencies between the various statements in a Python script. When you modify a line in a file, it will be marked as Stale together with all the lines that depend on it.
 
-This extension is in **BETA**. Please don't expect it to run flawlessly. Also, read about the limitations below.
+This extension is in **PREVIEW**. Please don't expect it to run flawlessly. Also, read about the limitations below.
 
 
 # Demo:
@@ -34,6 +34,10 @@ This extension is in **BETA**. Please don't expect it to run flawlessly. Also, r
   3. Open a Python file.
   
   4. Initialize Reactive Jupyter by clicking the "Initialize Reactive Jupyter" codelens at the top of the editor, or launch the `Initialize Reactive Jupyter` command from the command palette.  This will start a new Jupyter Kernel in an interactive window.
+
+  5. The first time, you will be asked to trust this extension running Python code in your Kernel. It is completely safe to do so.
+
+  6. You are now ready to run your code.
 
 # Shortcuts:
 
