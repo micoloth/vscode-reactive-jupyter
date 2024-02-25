@@ -24,7 +24,7 @@
 		"color": "#ffffff",
 		"theme": "light"
 	},
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"engines": {
 		"vscode": "^1.86.0"
 	},
@@ -51,6 +51,7 @@
 		"ms-toolsai.jupyter"
 	],
 	"main": "out/extension.js",
+	"browser": "out/extension.js",
 	"contributes": {
 		"colors": [
 			{
@@ -178,7 +179,11 @@
 		"esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --main-fields=module,main",
 		"esbuild": "npm run esbuild-base -- --sourcemap",
 		"esbuild-watch": "npm run esbuild-base -- --sourcemap --watch",
-		"test-compile": "tsc -p ./"
+		"test-compile": "tsc -p ./",
+		"compile-web": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --platform=browser",
+		"watch-web": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --platform=browser --watch",
+		"package-web": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --platform=browser --minify"
+
 	},
 	"devDependencies": {
 		"@types/node": "14.x",
