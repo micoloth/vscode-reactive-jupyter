@@ -784,15 +784,15 @@ class ReactivePythonDagBuilderUtils__():
             # Additional step: For all variables that are outputted by a stale node, mark all the nodes that use that variable as stale FROM THE BEGINNING:
             # If the assignements always use a new name, as it should be in a functional setting, this is not necessary.
             # But, if the same variable is reassigned, then it is necessary to mark all the nodes that use that variable as stale.
-            all_outputted_stale_vars = set(itertools.chain.from_iterable([new_dag.nodes[node]['output_vars'] for node in new_dag.nodes if new_dag.nodes[node]['stale']]))
-            for node in topological_sort(new_dag):
-                if node == '_START_': 
-                    continue
-                node_data = new_dag.nodes[node]
-                node_vars = node_data['input_vars'] | node_data['errored_input_vars'] | node_data['output_vars'] | node_data['errored_output_vars']
-                node_parents = list(new_dag.predecessors(node))
-                if any(var in all_outputted_stale_vars for var in node_vars) or any(new_dag.nodes[parent]['stale'] for parent in node_parents):
-                    node_data['stale'] = True
+            # all_outputted_stale_vars = set(itertools.chain.from_iterable([new_dag.nodes[node]['output_vars'] for node in new_dag.nodes if new_dag.nodes[node]['stale']]))
+            # for node in topological_sort(new_dag):
+            #     if node == '_START_': 
+            #         continue
+            #     node_data = new_dag.nodes[node]
+            #     node_vars = node_data['input_vars'] | node_data['errored_input_vars'] | node_data['output_vars'] | node_data['errored_output_vars']
+            #     node_parents = list(new_dag.predecessors(node))
+            #     if any(var in all_outputted_stale_vars for var in node_vars) or any(new_dag.nodes[parent]['stale'] for parent in node_parents):
+            #         node_data['stale'] = True
         
 
         def draw_dag(graph):
@@ -888,7 +888,7 @@ class ReactivePythonDagBuilderUtils__():
                         for pred in current_dag.predecessors(n):
                             is_selected = pred in nodes_to_return  # Yes, it's quadratic. This is probably the only place where this code is quadratic?
                             if (current_dag.nodes[pred].get('text') != '_START_'
-                                and ((not is_selected and current_dag.nodes[pred].get('stale')) or is_selected and current_dag.nodes[pred].get('depends_on_stale_nodes_not_selected'))):
+                                and ((not is_selected and current_dag.nodes[pred].get('stale')) or (is_selected and current_dag.nodes[pred].get('depends_on_stale_nodes_not_selected')))):
                                 depends_on_stale_nodes_not_selected = True   
                         current_dag.nodes[n]['depends_on_stale_nodes_not_selected'] = depends_on_stale_nodes_not_selected
             
@@ -897,8 +897,29 @@ class ReactivePythonDagBuilderUtils__():
             return result
         
         def set_all_descendants_to_stale(dag, node):
-            for descendant in descendants(dag, node):
-                dag.nodes[descendant]['stale'] = True
+            # Additional step: Set ALL the descendants of node AND ALSO all nodes using its output and THEIR descendants to STALE: 
+            # If the node has no Outputs, this has no effect, of course
+            node_outputs = dag.nodes[node]['output_vars'] | dag.nodes[node]['errored_output_vars']
+            if len(node_outputs) == 0:
+                return
+            nodes_to_set_as_stale = []
+            # Get ALl the nodes which use OR define the output variables of the node:
+            for n in topological_sort(dag.nodes):
+                if (
+                        # any of the PARENTS is in nodes_to_set_as_stale:
+                        any(pred in nodes_to_set_as_stale for pred in dag.predecessors(n))
+                        # Or uses the Output in any way:
+                        or (dag.nodes[n]['input_vars'] & node_outputs) 
+                        or (dag.nodes[n]['output_vars'] & node_outputs)
+                        or (dag.nodes[n]['errored_input_vars'] & node_outputs)
+                        or (dag.nodes[n]['errored_output_vars'] & node_outputs)
+                    ):  # Remember & means "intersection"
+                    nodes_to_set_as_stale.append(n)
+                    if n != node:
+                        dag.nodes[n]['stale'] = True
+                    
+            # for descendant in descendants(dag, node):
+            #     dag.nodes[descendant]['stale'] = True
 
         return dagnodes_to_dag, ast_to_dagnodes, draw_dag, update_staleness_info_in_new_dag, get_input_variables_for, get_output_variables_for, annotate, dag_to_node_ranges, fuse_nodes, node_repr_hash, set_all_descendants_to_stale
     
@@ -980,7 +1001,8 @@ class ReactivePythonDagBuilderUtils__():
             if self.node_repr_hash(self.current_dag.nodes[node]) == hash:
                 self.current_dag.nodes[node]['stale'] = False
 
-                # Additional step: Set ALL its descendants to STALE: # If the node has no Outputs, this has no effect, of course
+                # Additional step: Set ALL its descendants AND ALSO all nodes using this output and THEIR descendants to STALE: 
+                # If the node has no Outputs, this has no effect, of course
                 self.set_all_descendants_to_stale(self.current_dag, node)
                 return True
 
