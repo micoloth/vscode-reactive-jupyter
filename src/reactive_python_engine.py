@@ -904,22 +904,19 @@ class ReactivePythonDagBuilderUtils__():
                 return
             nodes_to_set_as_stale = []
             # Get ALl the nodes which use OR define the output variables of the node:
-            for n in topological_sort(dag.nodes):
+            for n in topological_sort(dag):
                 if (
                         # any of the PARENTS is in nodes_to_set_as_stale:
                         any(pred in nodes_to_set_as_stale for pred in dag.predecessors(n))
                         # Or uses the Output in any way:
-                        or (dag.nodes[n]['input_vars'] & node_outputs) 
-                        or (dag.nodes[n]['output_vars'] & node_outputs)
-                        or (dag.nodes[n]['errored_input_vars'] & node_outputs)
-                        or (dag.nodes[n]['errored_output_vars'] & node_outputs)
+                        or (dag.nodes[n].get('input_vars', set()) & node_outputs) 
+                        or (dag.nodes[n].get('output_vars', set()) & node_outputs)
+                        or (dag.nodes[n].get('errored_input_vars', set()) & node_outputs)
+                        or (dag.nodes[n].get('errored_output_vars', set()) & node_outputs)
                     ):  # Remember & means "intersection"
                     nodes_to_set_as_stale.append(n)
                     if n != node:
                         dag.nodes[n]['stale'] = True
-                    
-            # for descendant in descendants(dag, node):
-            #     dag.nodes[descendant]['stale'] = True
 
         return dagnodes_to_dag, ast_to_dagnodes, draw_dag, update_staleness_info_in_new_dag, get_input_variables_for, get_output_variables_for, annotate, dag_to_node_ranges, fuse_nodes, node_repr_hash, set_all_descendants_to_stale
     
