@@ -34,7 +34,7 @@ import {
 } from 'vscode';
 import * as vscode from 'vscode';
 
-import { TextDecoder } from 'util';
+import { TextDecoder } from 'text-encoding';
 import { scriptCode } from './reactive_python_engine';
 import { Jupyter, Kernel } from '@vscode/jupyter-extension';
 import { generateInteractiveCode } from './codeStolenFromJupyter/generateInteractiveCode';
