@@ -27,7 +27,7 @@ vsce login micoloth
 # TO BUNDLE:  -- REMEMBER TO BUMP YOUR VERSION !!!
 
 npm i
-npm run webpack    # npm run esbuild
+npm run compile    # npm run esbuild
 vsce package
 vsce publish
 
