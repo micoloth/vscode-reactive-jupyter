@@ -865,8 +865,8 @@ class ReactivePythonDagBuilderUtils__():
                     nodes_to_return += [n for n in ancestors(current_dag, current_node)]
                 elif get_upstream and stale_only:
                     nodes_to_return += [n for n in ancestors(current_dag, current_node) if current_dag.nodes[n].get('stale')]
-                if get_upstream or not stale_only or current_dag.nodes[current_node].get('stale'):
-                    nodes_to_return += [current_node]  # IF YOU ARE GETTING THE ANCESTORS (So "up to(including) the current node"), this is inserted EVEN IF NOT STALE, which is very intentional
+                if (not get_downstream) or not stale_only or current_dag.nodes[current_node].get('stale'):
+                    nodes_to_return += [current_node]  # IF YOU ARE NOT GETTING THE DESCENDANTS (So "up to(including) the current node"), this is inserted EVEN IF NOT STALE, which is very intentional
                 if get_downstream and not stale_only:
                     nodes_to_return += [n for n in descendants(current_dag, current_node)]
                 elif get_downstream and stale_only:
