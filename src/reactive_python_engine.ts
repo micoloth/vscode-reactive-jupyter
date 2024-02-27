@@ -903,19 +903,19 @@ class ReactivePythonDagBuilderUtils__():
             node_outputs = dag.nodes[node]['output_vars'] | dag.nodes[node]['errored_output_vars']
             if len(node_outputs) == 0:
                 return
-            nodes_to_set_as_stale = []
+            nodes_to_set_as_stale = set()
             # Get ALl the nodes which use OR define the output variables of the node:
             for n in topological_sort(dag):
                 if (
-                        # any of the PARENTS is in nodes_to_set_as_stale:
-                        any(pred in nodes_to_set_as_stale for pred in dag.predecessors(n))
+                        # any of the PARENTS is in nodes_to_set_as_stale set: # Remember & means "intersection"
+                        (set(dag.predecessors(n)) & nodes_to_set_as_stale)
                         # Or uses the Output in any way:
                         or (dag.nodes[n].get('input_vars', set()) & node_outputs) 
                         or (dag.nodes[n].get('output_vars', set()) & node_outputs)
                         or (dag.nodes[n].get('errored_input_vars', set()) & node_outputs)
                         or (dag.nodes[n].get('errored_output_vars', set()) & node_outputs)
-                    ):  # Remember & means "intersection"
-                    nodes_to_set_as_stale.append(n)
+                    ):  
+                    nodes_to_set_as_stale.add(n)
                     if n != node:
                         dag.nodes[n]['stale'] = True
 
