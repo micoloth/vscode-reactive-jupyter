@@ -53,34 +53,11 @@ const MarkdownMimeType = 'text/markdown';
 const HtmlMimeType = 'text/html';
 const textDecoder = new TextDecoder();
 
-// USEFUL THINGS TO KNOW ABOUT: JUPYTER COMMANDS:                           
-// "jupyter.execSelectionInteractive"  
-// "jupyter.createnewinteractive",  // Create Interactive Window
-// "jupyter.deleteCells"  // Delete Selected Cells
-// "jupyter.restartkernel"  // Restart Kernel
-// "jupyter.removeallcells"  // Delete All Notebook Editor Cells
-// "jupyter.interactive.clearAllCells"  // Clear All
-// "jupyter.selectDependentCells"  //  :O
-// interactive.open - Open interactive window and return notebook editor and input URI
 
-// IMPORTANT IDEA: controller == kernel !!
+////////////////////////////////////////////////////////////////////////////////////////////////////
+//    RUN PYTHON CODE: 2 WAYS: IN KERNEL AND IN INTERACTIVE WINDOW
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
-
-// USEFUL THINGS TO KNOW ABOUT: VSCODE NOTEBOOKS:                           
-// NotebookCellData contains the 
-//  - outputs: NotebookCellOutput[] 
-//  - AND value: string 
-//  - AND the executionSummary: NotebookCellExecutionSummary
-//  NotebookCellExecutionSummary contains the
-//  - success: boolean
-// BUT ALSO, NotebookCell contains the
-//  - readonly document: TextDocument;
-//  - readonly outputs: readonly NotebookCellOutput[];
-//  - readonly executionSummary: NotebookCellExecutionSummary | undefined;
-// Apparently, NotebookCellData is the INPUT TO A NotebookEdit, which is the thing that EXTENSION sends vscode to modify a NotebookDocument of NotebookCell's ?
-// NotebookCellOutput is a list of NotebookCellOutputItem's which have a data: Uint8Array and a mime: string
-
-// Get if Mime is an Error:
 
 async function* executeCodeStreamInKernel(code: string, kernel: Kernel, output_channel: OutputChannel | null): AsyncGenerator<string | ExecutionError, void, unknown> {
     /*
@@ -99,7 +76,6 @@ async function* executeCodeStreamInKernel(code: string, kernel: Kernel, output_c
                     if (output_channel) {
                         if (output_channel) {output_channel.appendLine(`Error executing code ${error.name}: ${error.message},/n ${error.stack}`);}
                     }
-                    console.log(`Error executing code ${error.name}: ${error.message},/n ${error.stack}`);
                     yield { name: error.name, message: error.message, stack: error.stack } as ExecutionError;
                 } else {
                     if (output_channel) {
@@ -160,34 +136,26 @@ async function executeCodeInInteractiveWindow(
 
     if (!cell) {
         window.showErrorMessage('Reactive Jupyter: Failed to execute the code in the Interactive Window: No matching cell was identified');
-        console.log(">>Inteactive Execution Result for ", text, ": -> false (case 1)")
         return false;
     }
 
-    // WAIT until it's successful:
     let cell_state = CellState.Undefined;
     await new Promise((resolve) => setTimeout(resolve, 250));
-    // Wait forever for 1 of these 2 states:
     for (let i = 0; i > -1; i++) {
         cell_state = getCellState(cell);
         if (cell_state === CellState.Success) { 
-            // If ANY of the outputsitems in the outputs is an Error, return false:
             if (has_error_mime(cell)) {
-                console.log(">>Inteactive Execution Result for ", text, ": -> false (case 2)")
                 return false;
             }
-            console.log(">>Inteactive Execution Result for ", text, ": -> true (case 3)")
             return true; 
         }
         else if (cell_state === CellState.Error) { 
-            console.log(">>Inteactive Execution Result for ", text, ": -> false (case 4)")
             return false; 
         }
         await new Promise((resolve) => setTimeout(resolve, 250));
     }
 
     window.showErrorMessage('Reactive Jupyter: Failed to execute the code in the Interactive Window: The cell did not finish executing');
-    console.log(">>Inteactive Execution Result for ", text, ": -> false (case 5)")
     return false;
 
 }
@@ -325,7 +293,6 @@ async function queueComputation(
         vscode.window.showErrorMessage('Reactive Jupyter: Failed to unlock the Python kernel: ' + update_result);
     }
     else {
-        console.log('>> unlockCommand successful: ', update_result);
     }
 }
 
@@ -341,7 +308,6 @@ function has_error_mime(cell: NotebookCell): boolean {
     for (let i = 0; i < cell.outputs.length; i++) {
         for (let j = 0; j <  cell.outputs[i].items.length; j++) {
             if (errorMimeTypes.includes( cell.outputs[i].items[j].mime)) { 
-                console.log(' Error Mime: ', cell.outputs[i].items[j].mime, cell.outputs[i].items[j].data);
                 return true; 
             }
         }
@@ -367,7 +333,6 @@ enum CellState {
 }
 
 function getCellState(cell: NotebookCell): CellState {
-    console.log('> CELL: ', cell.executionSummary);
     if (cell.executionSummary && cell.executionSummary.success !== undefined) { return cell.executionSummary.success ? CellState.Success : CellState.Error; }
     else { return CellState.Undefined; }
 }
@@ -382,10 +347,6 @@ function getBestMatchingCell(cell: NotebookCell, nb: NotebookDocument, last_idx:
         let cell_i = nb.cellAt(i);
         if (cell_i.document.getText() === generateInteractiveCode(text)) { return cell_i; }
     }
-    console.log('No matching cell found: ', );
-    console.log('plain: ', text);
-    console.log('format: ', generateInteractiveCode(text));
-    console.log('cell: ', nb.cellAt(last_idx).document.getText());
     return undefined;
 }
 
@@ -446,7 +407,6 @@ function updateState(globalState: Map<string, string>, editor: TextEditor, newSt
     let acceptedTransitions = stateTransitions.get(currentState as State);
     if (acceptedTransitions && acceptedTransitions.includes(newState)) {
         globalState.set(editorConnectionStateKey(uri), newState);
-        console.log(' -> State transition: ' + currentState + ' -> ' + editorConnectionStateKey(uri) + ' : ' + getState(globalState, editor));
     }
     else {
         window.showErrorMessage('Reactive Jupyter: Invalid state transition: ' + currentState + ' -> ' + newState);
@@ -458,13 +418,11 @@ function checkSettings(globalState: Map<string, string>, editor: TextEditor,) {
     // After this function, you are: in settings_not_ok if they are not ok, or in THE SAME PREVIOUS STATE if they are, except if you were in settings_not_ok, in which case you are in initializable
     // Obviously, returns True if settings are ok, else False
 
-    // const setting = vscode.workspace.getConfiguration('jupyter').get<string>('interactiveWindow.viewColumn');
     const creationMode = vscode.workspace.getConfiguration('jupyter').get<string>('interactiveWindow.creationMode');
     const shiftEnter = vscode.workspace.getConfiguration('jupyter').get<boolean>('interactiveWindow.textEditor.executeSelection');
     const perFileMode = creationMode && ['perFile', 'perfile'].includes(creationMode);
     const shiftEnterOff = shiftEnter === false;
 
-    console.log(perFileMode && shiftEnterOff)
     if (perFileMode && shiftEnterOff && getState(globalState, editor) === State.settings_not_ok) {
         updateState(globalState, editor, State.initializable);
         return true;
@@ -537,14 +495,12 @@ const editorToKernelKey = (editorUri: string) => 'editorToIWKey' + editorUri;
 const editorConnectionStateKey = (editorUri: string) => 'state' + editorUri;
 
 
-// Type struct with the cellCount field, called CachedNotebookDocument:
 type CachedNotebookDocument = { cellCount: number, uri: Uri };
 const toMyNotebookDocument = (doc: NotebookDocument): CachedNotebookDocument => ({ cellCount: doc.cellCount, uri: doc.uri });
 
 
 async function initializeInteractiveWindowAndKernel(globalState: Map<string, string>, editor: TextEditor) {
 
-    // If not in state initializable or initializable_messaged, return:
     let currentState = getState(globalState, editor)
     if (currentState !== State.initializable && currentState !== State.initializable_messaged) {
         console.log('Invalid state for initialization: ' + currentState);
@@ -573,8 +529,7 @@ async function initializeInteractiveWindowAndKernel(globalState: Map<string, str
         if (!newNotebook) { n_attempts -= 1; continue }
 
         globalState.set(editorToIWKey(editor.document.uri.toString()), newNotebook.uri.toString());
-        // Sleep 3 secs:
-        await new Promise((resolve) => setTimeout(resolve, 3000));
+        await new Promise((resolve) => setTimeout(resolve, 2000));
         let okFoundKernel: [NotebookDocument, Kernel] | undefined = undefined;
         for (let i = 0; i < 10; i++) {
             okFoundKernel = await getNotebookAndKernel(globalState, editor,);
@@ -628,7 +583,6 @@ async function preparePythonEnvForReactivePython(editor: TextEditor, globalState
 
     checkSettings(globalState, editor);
 
-    // If you are not viewing a Python file, show a message and return:
     if (editor.document.languageId !== 'python') {
         window.showErrorMessage('Reactive Jupyter: This extension only works when editing Python files. Please open a Python file and try again');
         return;
@@ -648,7 +602,7 @@ async function preparePythonEnvForReactivePython(editor: TextEditor, globalState
     let refreshed_ranges = await getCurrentRangesFromPython(editor, null, globalState, {
         rebuild: true,
         current_line: null
-    }); // Do this in order to immediately recompute the dag in the python kernel
+    }); 
     if (refreshed_ranges) {
         updateDecorations(editor, refreshed_ranges);
     }
@@ -708,9 +662,7 @@ const getEditorAllText = (editor: TextEditor): { text: string | null } => {
 
 function formatTextAsPythonString(text: string) {
     text = text.replace(/\\/g, '\\\\');
-    // >> You MIGHT be interested in
-    // /Users/michele.tasca/Documents/vscode-extensions/vscode-reactive-jupyter/src/platform/terminals/codeExecution/codeExecutionHelper.node.ts
-    //  >> CodeExecutionHelper >> normalizeLines  ...
+    // >> You MIGHT be interested in vscode-jupyter/src/platform/terminals/codeExecution/codeExecutionHelper.node.ts  >> CodeExecutionHelper >> normalizeLines  ...
     text = text.replace(/'/g, "\\'");
     text = text.replace(/"/g, '\\"');
     text = text.replace(/\n/g, '\\n');
@@ -726,42 +678,6 @@ const getEditorCurrentLineNum = (editor: TextEditor): number | null => {
     }
     const currentLineNum = editor.selection.active.line;
     return currentLineNum;
-};
-
-const getEditorCurrentText = (editor: TextEditor): { currentQuery: string; currentRange: Range | null } => {
-    if (!editor || !editor.document || editor.document.uri.scheme === 'output') {
-        return {
-            currentQuery: '',
-            currentRange: null
-        };
-    }
-    if (!editor.selection.isEmpty) {
-        return {
-            currentQuery: editor.document.getText(editor.selection),
-            currentRange: editor.selection
-        };
-    }
-    const currentLine = editor.document
-        .getText(new Range(Math.max(0, editor.selection.active.line - 4), 0, editor.selection.active.line + 1, 0))
-        .replace(/[\n\r\s]/g, '');
-    if (currentLine.length === 0)
-        return {
-            currentQuery: '',
-            currentRange: editor.selection
-        };
-    const text = editor.document.getText();
-    const currentOffset = editor.document.offsetAt(editor.selection.active);
-    const prefix = text.slice(0, currentOffset + 1);
-    const allQueries = text; // parse(text);
-    const prefixQueries = prefix; // parse(prefix);
-    const currentQuery = allQueries[prefixQueries.length - 1];
-    const startIndex = prefix.lastIndexOf(prefixQueries[prefixQueries.length - 1]);
-    const startPos = editor.document.positionAt(startIndex);
-    const endPos = editor.document.positionAt(startIndex + currentQuery.length);
-    return {
-        currentQuery,
-        currentRange: new Range(startPos, endPos)
-    };
 };
 
 const recognized_states = ['synced', 'outdated', 'syntaxerror', 'dependsonotherstalecode']
@@ -782,21 +698,17 @@ const parseResultFromPythonAndGetRange = (resultFromPython: string): AnnotatedRa
 
     // Json parse:
     let resultFromPythonParsed;
-    // console.log("5: Here we are: ", resultFromPython)
     try {
         resultFromPythonParsed = JSON.parse(resultFromPython);
     } catch (e) {
-        console.log('Failed to parse result from Python: ' + resultFromPython);
         vscode.window.showErrorMessage('Reactive Jupyter: Failed to parse JSON result from Python: ' + resultFromPython);
         return null;
     }
-    // console.log("6: Here we are: ", resultFromPythonParsed)
     // Assert that it worked:
     if (resultFromPythonParsed === undefined) {
         console.log('Failed to parse result from Python: ' + resultFromPython);
         return null;
     }
-    // console.log("7: Here we are: ", resultFromPythonParsed)
     // Convert to Range[]:
     let ranges: AnnotatedRange[] = [];
     for (let i = 0; i < resultFromPythonParsed.length; i++) {
@@ -843,21 +755,15 @@ const getCurrentRangesFromPython = async (
     },
 ): Promise<AnnotatedRange[] | undefined> => {
     if (current_line === null) {
-        console.log('getCurrentRangesFromPython: current_line is none');
     }
-    // console.log("1: Here we are!")
     let linen = current_line === undefined ? getEditorCurrentLineNum(editor) : current_line;
     let text: string | null = rebuild ? getEditorAllText(editor).text : null;
     if (!text && !linen) return;
     text = text ? formatTextAsPythonString(text) : null;
-    // console.log("2: Here we are: ", text)
     let command = getCommandToGetAllRanges(text, linen, upstream, downstream, stale_only, to_launch_compute);
-    // console.log('3: Here we are: ', command)
     const result = await safeExecuteCodeInKernel(command, editor, output, globalState);
-    // console.log('4: Result from Python: ' + result);
     if (result === undefined || result == '[]' || isExecutionError(result)) return;
     if (to_launch_compute) {
-        console.log('Result from Python to compute: ' + result);
     }
     const ranges_out = await parseResultFromPythonAndGetRange(result);
     if (!ranges_out) return;
@@ -874,6 +780,45 @@ const getTextInRanges = (ranges: AnnotatedRange[]): string[] => {
         text.push(textInRange);
     }
     return text;
+};
+
+
+const getEditorCurrentText = (editor: TextEditor): { currentQuery: string; currentRange: Range | null } => {
+    // Currently not used..
+    
+    if (!editor || !editor.document || editor.document.uri.scheme === 'output') {
+        return {
+            currentQuery: '',
+            currentRange: null
+        };
+    }
+    if (!editor.selection.isEmpty) {
+        return {
+            currentQuery: editor.document.getText(editor.selection),
+            currentRange: editor.selection
+        };
+    }
+    const currentLine = editor.document
+        .getText(new Range(Math.max(0, editor.selection.active.line - 4), 0, editor.selection.active.line + 1, 0))
+        .replace(/[\n\r\s]/g, '');
+    if (currentLine.length === 0)
+        return {
+            currentQuery: '',
+            currentRange: editor.selection
+        };
+    const text = editor.document.getText();
+    const currentOffset = editor.document.offsetAt(editor.selection.active);
+    const prefix = text.slice(0, currentOffset + 1);
+    const allQueries = text; // parse(text);
+    const prefixQueries = prefix; // parse(prefix);
+    const currentQuery = allQueries[prefixQueries.length - 1];
+    const startIndex = prefix.lastIndexOf(prefixQueries[prefixQueries.length - 1]);
+    const startPos = editor.document.positionAt(startIndex);
+    const endPos = editor.document.positionAt(startIndex + currentQuery.length);
+    return {
+        currentQuery,
+        currentRange: new Range(startPos, endPos)
+    };
 };
 
 
@@ -929,7 +874,6 @@ let updateDecorations = async (editor: TextEditor, ranges_out: AnnotatedRange[])
         // let kernel_uuid = editor.document.uri;
         // // 2. Set current editor ranges in global state:
         // await globalState.update(kernel_uuid.toString() + '_ranges', ranges_out);
-        // // console.log('>>>>>>>>Global State updated');
 
         // Set highlight on all the ranges in ranges_out with state == 'synced'
         let sync_ranges = ranges_out.filter((r) => r.state == 'synced' && !r.current).map((r) => r.range);
@@ -948,30 +892,9 @@ let updateDecorations = async (editor: TextEditor, ranges_out: AnnotatedRange[])
             window.showErrorMessage('Reactive Jupyter: Syntax Error at line ' + (syntax_error_ranges[0].range.start.line + 1).toString()); 
         }
     } catch (error) {
-        // console.log('update decorations failed: %O', error);
     }
 };
 
-// let updateDecorations = async (editor: TextEditor, globalState: vscode.Memento) => {
-//     try {
-//         // Get the Kernel uuid:
-//         let kernel_uuid = editor.document.uri;
-//         // Get the ranges from global state:
-//         let ranges_out: { range: Range; state: string }[] | undefined = await globalState.get(
-//             kernel_uuid.toString() + '_ranges'
-//         );
-//         console.log('>>>>>>>>REFRESHING the ranges: ');
-//         console.log(ranges_out);
-
-//         if (ranges_out) {
-//             console.log('>>>>>>>>YEE its NOT undefined! !!');
-
-//         }
-//         console.log('\n\n');
-//     } catch (error) {
-//         console.log('update decorations failed: %O', error);
-//     }
-// };
 
 
 
@@ -986,13 +909,10 @@ export class CellCodelensProvider implements vscode.CodeLensProvider {
     public readonly onDidChangeCodeLenses: vscode.Event<void> = this._onDidChangeCodeLenses.event;
 
     change_range(new_range: Range | undefined) {
-        // console.log('>>>>>>>>>>>>>>>>>>NICE, FIRED RESET!. ');
         if (new_range && new_range != this.range) {
-            // console.log('>>>>> Here I am, setting: ' + this.range);
             this.range = new_range;
             this._onDidChangeCodeLenses.fire();
         } else if (!new_range && this.range) {
-            // console.log('>>>>> Here I am, UNsetting: ' + this.range);
             this.range = undefined;
             this._onDidChangeCodeLenses.fire();
         }
@@ -1009,7 +929,6 @@ export class CellCodelensProvider implements vscode.CodeLensProvider {
         token: vscode.CancellationToken
     ): vscode.CodeLens[] | Thenable<vscode.CodeLens[]> {
         let editor = vscode.window.activeTextEditor;
-        // console.log('>>>>> Here I am, reading: ' + this.range);
         if (editor && this.range && editor.document.uri == document.uri) {
             // Current line:
             this.codeLenses = [
@@ -1050,11 +969,8 @@ export class InitialCodelensProvider implements vscode.CodeLensProvider {
         document: vscode.TextDocument,
         token: vscode.CancellationToken
     ): vscode.CodeLens[] | Thenable<vscode.CodeLens[]> {
-        // console.log('>>>>>>>>>>>>>>>>>>NICE, INVOKED ONCE. ');
         let editor = vscode.window.activeTextEditor;
-        // console.log('>>>>>>>>>>>>>>>>>>NICE, INVOKED HERE. ' + editor);
         if (editor && editor.document.uri == document.uri) {
-            // console.log('>>>>>>>>>>>>>>>>>>INSIDE THE IF. ' + editor);
             let codeLenses = [
                 new vscode.CodeLens(new vscode.Range(0, 0, 0, 0), {
                     title: '$(debug-start) Initialize Reactive Jupyter',
@@ -1175,7 +1091,6 @@ export function activate(context: ExtensionContext) {
 
     defineAllCommands(context, output, globalState);
 
-    // CellOutputDisplayIdTracker.activate();
 }
 
 
@@ -1183,21 +1098,6 @@ export function activate(context: ExtensionContext) {
 
 async function defineAllCommands(context: ExtensionContext, output: OutputChannel, globalState: Map<string, string>
 ) {
-    // context.subscriptions.push(
-    // 	commands.registerCommand('jupyterKernelExecution.listKernels', async () => {
-    // 		const kernel = await selectKernel();
-    // 		if (!kernel) {
-    // 			return;
-    // 		}
-    // 		const code = "12+15";
-    // 		if (!code) {
-    // 			return;
-    // 		}
-    // 		await executeCodeInKernel(code, kernel, output);
-    // 	})
-    // );
-
-    // The command has been defined in the package.json file // Now provide the implementation of the command with registerCommand // The commandId parameter must match the command field in package.json
     context.subscriptions.push(
         vscode.commands.registerCommand(
             'reactive-jupyter.initialize-reactive-python-extension',
@@ -1215,11 +1115,6 @@ async function defineAllCommands(context: ExtensionContext, output: OutputChanne
     context.subscriptions.push( vscode.commands.registerCommand('reactive-jupyter.initialize-and-sync-upstream-and-downstream', createPrepareEnvironementAndComputeAction({ rebuild: true, upstream: true, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output)) );
     context.subscriptions.push( vscode.commands.registerCommand('reactive-jupyter.initialize-and-sync-current', createPrepareEnvironementAndComputeAction({ rebuild: true, upstream: false, downstream: false, stale_only: false, to_launch_compute: true }, globalState, output)) );
     context.subscriptions.push( vscode.commands.registerCommand('reactive-jupyter.initialize-and-sync-all', createPrepareEnvironementAndComputeAction({ rebuild: true, current_line: null, upstream: true, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output)) );
-
-
-
-
-    // await preparePythonEnvForReactivePythonAction(output);
 
     ///////// Codelens: ///////////////////////
 
@@ -1243,8 +1138,6 @@ async function defineAllCommands(context: ExtensionContext, output: OutputChanne
         Context.subscriptions
     );
     workspace.onDidChangeTextDocument(
-        // This: Exists too! >> onDidSaveTextDocument  >> (even if should be included in the onDidChangeTextDocument one ? )
-        // editors, undo/ReactDOM, save, etc
         async (event) => {
             let editor = window.activeTextEditor;
             if (editor && event.document === editor.document) {
@@ -1261,7 +1154,6 @@ async function defineAllCommands(context: ExtensionContext, output: OutputChanne
     );
     window.onDidChangeTextEditorSelection(
         async (event) => {
-            // console.log('----- Here 1! ');
             let editor = window.activeTextEditor;
             if (
                 event.textEditor &&
@@ -1270,11 +1162,9 @@ async function defineAllCommands(context: ExtensionContext, output: OutputChanne
                 editor.selection.isEmpty && 
                 getState(globalState, editor) == State.extension_available
             ) {
-                // console.log('----- Here 2! ');
                 const current_ranges = await getCurrentRangesFromPython(editor, output, globalState, {
                     rebuild: false
                 });
-                // console.log('----- Here 3!, current_ranges: ', current_ranges);
                 if (current_ranges) {
                     updateDecorations(editor, current_ranges);
                 }
@@ -1282,10 +1172,8 @@ async function defineAllCommands(context: ExtensionContext, output: OutputChanne
                     updateDecorations(event.textEditor, []);
                 }
                 let codelense_range = current_ranges ? current_ranges.filter((r) => (r.current && r.state != 'syntaxerror')).map((r) => r.range) : [];
-                // console.log('----- Here 4! ', codelense_range);
                 codelensProvider.change_range(codelense_range.length > 0 ? codelense_range[0] : undefined);
             } else {
-                // console.log('----- Here 5! ', event.textEditor !== undefined, editor !== undefined, event.textEditor.document !== undefined, (editor) ? true: false, (editor) ? event.textEditor.document === editor.document : false);
                 updateDecorations(event.textEditor, []);
                 codelensProvider.change_range(undefined);
             }
@@ -1293,19 +1181,56 @@ async function defineAllCommands(context: ExtensionContext, output: OutputChanne
         null,
         Context.subscriptions
     );
-    ///////// Do highlighting for the first time right now: ///////////////////////
-    // if (window.activeTextEditor) {
-    //     updateDecorations(window.activeTextEditor, kernel, output);
-    // } else {
-    //     vscode.window.showInformationMessage(
-    //         'No active text editor on Activation Time. Try to retrigger the highlighter somehow.'
-    //     );
-    // }
-
-    ///////// CodeLenses: ///////////////////////
-    // Add a codelens above the line where the cursor is, that launches the "reactive-jupyter.test-command" command:
-    // const codelensProvider = new MyCodeLensProvider();
-    // const disposable = languages.registerCodeLensProvider({ language: 'python' }, codelensProvider);
-    // context.subscriptions.push(disposable);
-    // HINT: ONE version of this is /Users/michele.tasca/Documents/vscode-extensions/vscode-reactive-jupyter/src/interactive-window/editor-integration/codelensprovider.ts !!
 }
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// NOTES
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+///////// Do highlighting for the first time right now: ///////////////////////
+// if (window.activeTextEditor) {
+//     updateDecorations(window.activeTextEditor, kernel, output);
+// } else {
+//     vscode.window.showInformationMessage(
+//         'No active text editor on Activation Time. Try to retrigger the highlighter somehow.'
+//     );
+// }
+
+///////// CodeLenses: ///////////////////////
+// Add a codelens above the line where the cursor is, that launches the "reactive-jupyter.test-command" command:
+// const codelensProvider = new MyCodeLensProvider();
+// const disposable = languages.registerCodeLensProvider({ language: 'python' }, codelensProvider);
+// context.subscriptions.push(disposable);
+// HINT: ONE version of this is /Users/michele.tasca/Documents/vscode-extensions/vscode-reactive-jupyter/src/interactive-window/editor-integration/codelensprovider.ts !!
+
+
+// USEFUL THINGS TO KNOW ABOUT: JUPYTER COMMANDS:                           
+// "jupyter.execSelectionInteractive"  
+// "jupyter.createnewinteractive",  // Create Interactive Window
+// "jupyter.deleteCells"  // Delete Selected Cells
+// "jupyter.restartkernel"  // Restart Kernel
+// "jupyter.removeallcells"  // Delete All Notebook Editor Cells
+// "jupyter.interactive.clearAllCells"  // Clear All
+// "jupyter.selectDependentCells"  //  :O
+// interactive.open - Open interactive window and return notebook editor and input URI
+
+// IMPORTANT IDEA: controller == kernel !!
+
+
+// USEFUL THINGS TO KNOW ABOUT: VSCODE NOTEBOOKS:                           
+// NotebookCellData contains the 
+//  - outputs: NotebookCellOutput[] 
+//  - AND value: string 
+//  - AND the executionSummary: NotebookCellExecutionSummary
+//  NotebookCellExecutionSummary contains the
+//  - success: boolean
+// BUT ALSO, NotebookCell contains the
+//  - readonly document: TextDocument;
+//  - readonly outputs: readonly NotebookCellOutput[];
+//  - readonly executionSummary: NotebookCellExecutionSummary | undefined;
+// Apparently, NotebookCellData is the INPUT TO A NotebookEdit, which is the thing that EXTENSION sends vscode to modify a NotebookDocument of NotebookCell's ?
+// NotebookCellOutput is a list of NotebookCellOutputItem's which have a data: Uint8Array and a mime: string
+
+
