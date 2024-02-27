@@ -1,5 +1,10 @@
 
-# A Reactive Jupyter Extension for Visual Studio Code
+
+
+
+<h1 style="text-align: center;">A Reactive Jupyter Extension for Visual Studio Code</h1>
+
+
 <p align="center">
 <img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg">
 <img alt="PyPI - Python Version" src="https://img.shields.io/pypi/pyversions/networkx">
@@ -76,7 +81,7 @@ As a workaround for this limitation, you can do 2 things:
     mylist = append_to_list(mylist, 1)
     ```
 
- - When you perform an impure operation, always join it to a statement that reassigns the variable to itself, like this: `mylist = mylist`. This is free in Python, and will correctly propagate the dependency to the next statements.
+ - Or, when you perform an impure operation, always join it to a statement that reassigns the variable to itself, like this: `mylist = mylist`. This is free in Python, and will correctly propagate the dependency to the next statements.
 
 This second methods requires joining several statements into a single execution "block" or "cell", that will always be executed as a single unit.
 
