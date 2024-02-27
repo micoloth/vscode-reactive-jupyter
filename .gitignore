@@ -6,20 +6,20 @@ log.log
 **/node_modules
 *.pyc
 *.vsix
-**/.vscode/.ropeproject/**
+# **/.vscode/.ropeproject/**
 **/testFiles/**/.cache/**
 *.noseids
 .nyc_output
-.vscode-test
+# .vscode-test
 __pycache__
 npm-debug.log
 **/.mypy_cache/**
 !yarn.lock
 coverage/
 cucumber-report.json
-**/.vscode-test/**
-**/.vscode test/**
-**/.vscode-smoke/**
+# **/.vscode-test/**
+# **/.vscode test/**
+# **/.vscode-smoke/**
 **/.venv*/
 port.txt
 precommit.hook
@@ -45,13 +45,13 @@ xunit-test-results.xml
 debug*.log
 debugpy*.log
 pydevd*.log
-vscode.d.ts
-vscode.proposed.*.d.ts
+# vscode.d.ts
+# vscode.proposed.*.d.ts
 nodeLanguageServer/**
 nodeLanguageServer.*/**
 src/test/datascience/.venv*
 !src/test/pythonEnvironments/**/*.*
-.vscode-test-web
+# .vscode-test-web
 .github_token
 # translation files
 *.xlf
@@ -60,4 +60,5 @@ src/test/datascience/.venv*
 l10n/
 
 out
+dist
 secrets.txt

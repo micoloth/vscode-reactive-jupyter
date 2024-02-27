@@ -26,7 +26,7 @@
 	},
 	"version": "0.1.2",
 	"engines": {
-		"vscode": "^1.86.0"
+		"vscode": "^1.85.0"
 	},
 	"categories": [
 		"Other",
@@ -50,8 +50,8 @@
 	"extensionDependencies": [
 		"ms-toolsai.jupyter"
 	],
-	"main": "out/extension.js",
-	"browser": "out/extension.js",
+	"main": "/dist/web/extension.js",
+	"browser": "./dist/web/extension.js",
 	"contributes": {
 		"colors": [
 			{
@@ -194,27 +194,27 @@
 	},
 	"scripts": {
 		"compile": "tsc -b",
-		"lint": "eslint src --ext ts",
-		"watch": "tsc -b --watch",
-		"vscode:prepublish": "npm run esbuild-base -- --minify",
-		"esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --main-fields=module,main",
-		"esbuild": "npm run esbuild-base -- --sourcemap",
-		"esbuild-watch": "npm run esbuild-base -- --sourcemap --watch",
-		"test-compile": "tsc -p ./",
-		"compile-web": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --platform=browser",
-		"watch-web": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --platform=browser --watch",
-		"package-web": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --platform=browser --minify"
-
+		"pretest": "npm run compile-web",
+		"vscode:prepublish": "npm run package-web",
+		"compile-web": "webpack",
+		"watch-web": "webpack --watch",
+		"watch": "webpack --watch",
+		"package-web": "webpack --mode production --devtool hidden-source-map"
 	},
 	"devDependencies": {
+		"@types/mocha": "^9.0.0",
+		"@types/vscode": "^1.82.0",
+		"@types/webpack-env": "^1.16.2",
+		"@vscode/test-web": "^0.0.22",
 		"@types/node": "14.x",
 		"@types/uuid": "^3.4.3",
-		"@types/vscode": "^1.82.0",
 		"@typescript-eslint/eslint-plugin": "^6.7.0",
 		"@typescript-eslint/parser": "^6.7.0",
 		"@vscode/jupyter-extension": "^1.1.0",
-		"esbuild": "^0.20.1",
-		"eslint": "^7.27.0",
+		"assert": "^2.0.0",
+		"eslint": "^8.26.0",
+		"mocha": "^9.2.0",
+		"process": "^0.11.10",
 		"typescript": "^5.2.2"
 	},
 	"dependencies": {
