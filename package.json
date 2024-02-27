@@ -104,22 +104,22 @@
 			},
 			{
 				"command": "reactive-jupyter.sync-downstream",
-				"title": "Refresh all Downstream",
+				"title": "Run all stale Downstream blocks",
 				"category": "Reactive Jupyter"
 			},
 			{
 				"command": "reactive-jupyter.sync-upstream",
-				"title": "Refresh all Upstream",
+				"title": "Run all stale Upstream blocks",
 				"category": "Reactive Jupyter"
 			},
 			{
 				"command": "reactive-jupyter.sync-upstream-and-downstream",
-				"title": "Refresh all Upstream and Downstream of the current cell",
+				"title": "Run all stale blocks Upstream and Downstream of the current cell",
 				"category": "Reactive Jupyter"
 			},
 			{
 				"command": "reactive-jupyter.sync-all",
-				"title": "Refresh all Stale Blocks",
+				"title": "Run all stale blocks",
 				"category": "Reactive Jupyter"
 			},
 			{
@@ -128,10 +128,31 @@
 				"category": "Reactive Jupyter"
 			},
 			{
-				"command": "reactive-jupyter.test-command",
-				"title": "Refresh all Downstream",
+				"command": "reactive-jupyter.initialize-and-sync-downstream",
+				"title": "Initialize Reactive Jupyter and run all stale Downstream blocks",
+				"category": "Reactive Jupyter"
+			},
+			{
+				"command": "reactive-jupyter.initialize-and-sync-upstream",
+				"title": "Initialize Reactive Jupyter and run all stale Upstream blocks",
+				"category": "Reactive Jupyter"
+			},
+			{
+				"command": "reactive-jupyter.initialize-and-sync-upstream-and-downstream",
+				"title": "Initialize Reactive Jupyter and run all stale blocks Upstream and Downstream of the current cell",
+				"category": "Reactive Jupyter"
+			},
+			{
+				"command": "reactive-jupyter.initialize-and-sync-all",
+				"title": "Initialize Reactive Jupyter and run all stale blocks",
+				"category": "Reactive Jupyter"
+			},
+			{
+				"command": "reactive-jupyter.initialize-and-sync-current",
+				"title": "Run current block",
 				"category": "Reactive Jupyter"
 			}
+
 		],
 		"keybindings": [
 			{

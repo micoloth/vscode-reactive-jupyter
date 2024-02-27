@@ -619,6 +619,43 @@ async function initializeInteractiveWindowAndKernel(globalState: Map<string, str
 
 
 
+async function preparePythonEnvForReactivePython(editor: TextEditor, globalState: Map<string, string>, output: OutputChannel) {
+
+    let command = scriptCode + '\n\n\n"Reactive Jupyter Activated"\n';
+    // if (output) { output.show(true); }
+
+    if (getState(globalState, editor) == false) { globalState.set(editorConnectionStateKey(editor.document.uri.toString()), State.initializable); }
+
+    checkSettings(globalState, editor);
+
+    // If you are not viewing a Python file, show a message and return:
+    if (editor.document.languageId !== 'python') {
+        window.showErrorMessage('Reactive Jupyter: This extension only works when editing Python files. Please open a Python file and try again');
+        return;
+    }
+
+    if (getState(globalState, editor) == (State.initializable) || getState(globalState, editor) == (State.initializable_messaged)) {
+        let success = await initializeInteractiveWindowAndKernel(globalState, editor);
+        if (!success) { return; }
+    }
+    // Here, you should ALWAYS be in State.kernel_available ...
+
+    let instantiated_script = await safeExecuteCodeInKernelForInitialization(command, editor, output, globalState);
+    if (!instantiated_script) { return; }
+
+    // Immediately start coloring ranges:
+
+    let refreshed_ranges = await getCurrentRangesFromPython(editor, null, globalState, {
+        rebuild: true,
+        current_line: null
+    }); // Do this in order to immediately recompute the dag in the python kernel
+    if (refreshed_ranges) {
+        updateDecorations(editor, refreshed_ranges);
+    }
+    else{
+        updateDecorations(editor, []);
+    }
+}
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -656,7 +693,7 @@ const getUnlockCommand = (): string => {
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// HIGHLIGHTING UTILS
+// GET RANGES FROM PYTHON
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 const getEditorAllText = (editor: TextEditor): { text: string | null } => {
@@ -838,6 +875,14 @@ const getTextInRanges = (ranges: AnnotatedRange[]): string[] => {
     }
     return text;
 };
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// HIGHLIGHTING UTILS
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
 
 const HighlightSynced = window.createTextEditorDecorationType({
     backgroundColor: { id: `reactivejupyter.syncedCell` },
@@ -1038,47 +1083,12 @@ export class InitialCodelensProvider implements vscode.CodeLensProvider {
 
 
 
-
 function createPreparePythonEnvForReactivePythonAction(globalState: Map<string, string>, output: OutputChannel) {
     async function preparePythonEnvForReactivePythonAction() {
 
-        let command = scriptCode + '\n\n\n"Reactive Jupyter Activated"\n';
         let editor = window.activeTextEditor;
         if (!editor) { return; }
-        
-        // if (output) { output.show(true); }
-
-        if (getState(globalState, editor) == false) { globalState.set(editorConnectionStateKey(editor.document.uri.toString()), State.initializable); }
-
-        checkSettings(globalState, editor);
-
-        // If you are not viewing a Python file, show a message and return:
-        if (editor.document.languageId !== 'python') {
-            window.showErrorMessage('Reactive Jupyter: This extension only works when editing Python files. Please open a Python file and try again');
-            return;
-        }
-
-        if (getState(globalState, editor) == (State.initializable) || getState(globalState, editor) == (State.initializable_messaged)) {
-            let success = await initializeInteractiveWindowAndKernel(globalState, editor);
-            if (!success) { return; }
-        }
-        // Here, you should ALWAYS be in State.kernel_available ...
-
-        let instantiated_script = await safeExecuteCodeInKernelForInitialization(command, editor, output, globalState);
-        if (!instantiated_script) { return; }
-
-        // Immediately start coloring ranges:
-
-        let refreshed_ranges = await getCurrentRangesFromPython(editor, null, globalState, {
-            rebuild: true,
-            current_line: null
-        }); // Do this in order to immediately recompute the dag in the python kernel
-        if (refreshed_ranges) {
-            updateDecorations(editor, refreshed_ranges);
-        }
-        else{
-            updateDecorations(editor, []);
-        }
+        preparePythonEnvForReactivePython(editor, globalState, output);
     }
     return preparePythonEnvForReactivePythonAction;
 }
@@ -1099,6 +1109,25 @@ function createComputeAction(config: {
         await queueComputation(current_ranges, editor, globalState, output);
     }
     return computeAction;
+}
+
+function createPrepareEnvironementAndComputeAction(config: {
+    rebuild: boolean;
+    current_line?: number | undefined | null;
+    upstream: boolean;
+    downstream: boolean;
+    stale_only: boolean;
+    to_launch_compute: boolean;
+}, globalState: Map<string, string>, output: OutputChannel) {
+    async function prepareEnvironementAndComputeAction() {
+        let editor = window.activeTextEditor;
+        if (!editor) return;
+        await preparePythonEnvForReactivePython(editor, globalState, output);
+        if (getState(globalState, editor) !== State.extension_available) { return; }
+        const current_ranges = await getCurrentRangesFromPython(editor, output, globalState, config,);
+        await queueComputation(current_ranges, editor, globalState, output);
+    }
+    return prepareEnvironementAndComputeAction;
 }
 
 
@@ -1175,23 +1204,20 @@ async function defineAllCommands(context: ExtensionContext, output: OutputChanne
             createPreparePythonEnvForReactivePythonAction(globalState, output)
         )
     );
-    context.subscriptions.push(
-        vscode.commands.registerCommand('reactive-jupyter.sync-downstream', createComputeAction({ rebuild: true, upstream: false, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output))
-    );
-    context.subscriptions.push(
-        vscode.commands.registerCommand('reactive-jupyter.sync-upstream', createComputeAction({ rebuild: true, upstream: true, downstream: false, stale_only: true, to_launch_compute: true }, globalState, output))
-    );
-    context.subscriptions.push(
-        vscode.commands.registerCommand('reactive-jupyter.sync-upstream-and-downstream', createComputeAction({ rebuild: true, upstream: true, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output))
-    );
+    context.subscriptions.push( vscode.commands.registerCommand('reactive-jupyter.sync-downstream', createComputeAction({ rebuild: true, upstream: false, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output)) );
+    context.subscriptions.push( vscode.commands.registerCommand('reactive-jupyter.sync-upstream', createComputeAction({ rebuild: true, upstream: true, downstream: false, stale_only: true, to_launch_compute: true }, globalState, output)) );
+    context.subscriptions.push( vscode.commands.registerCommand('reactive-jupyter.sync-upstream-and-downstream', createComputeAction({ rebuild: true, upstream: true, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output)) );
+    context.subscriptions.push( vscode.commands.registerCommand('reactive-jupyter.sync-current', createComputeAction({ rebuild: true, upstream: false, downstream: false, stale_only: false, to_launch_compute: true }, globalState, output)) );
+    context.subscriptions.push( vscode.commands.registerCommand('reactive-jupyter.sync-all', createComputeAction({ rebuild: true, current_line: null, upstream: true, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output)) );
 
-    context.subscriptions.push(
-        vscode.commands.registerCommand('reactive-jupyter.sync-current', createComputeAction({ rebuild: true, upstream: false, downstream: false, stale_only: false, to_launch_compute: true }, globalState, output))
-    );
+    context.subscriptions.push( vscode.commands.registerCommand('reactive-jupyter.initialize-and-sync-downstream', createPrepareEnvironementAndComputeAction({ rebuild: true, upstream: false, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output)) );
+    context.subscriptions.push( vscode.commands.registerCommand('reactive-jupyter.initialize-and-sync-upstream', createPrepareEnvironementAndComputeAction({ rebuild: true, upstream: true, downstream: false, stale_only: true, to_launch_compute: true }, globalState, output)) );
+    context.subscriptions.push( vscode.commands.registerCommand('reactive-jupyter.initialize-and-sync-upstream-and-downstream', createPrepareEnvironementAndComputeAction({ rebuild: true, upstream: true, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output)) );
+    context.subscriptions.push( vscode.commands.registerCommand('reactive-jupyter.initialize-and-sync-current', createPrepareEnvironementAndComputeAction({ rebuild: true, upstream: false, downstream: false, stale_only: false, to_launch_compute: true }, globalState, output)) );
+    context.subscriptions.push( vscode.commands.registerCommand('reactive-jupyter.initialize-and-sync-all', createPrepareEnvironementAndComputeAction({ rebuild: true, current_line: null, upstream: true, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output)) );
 
-    context.subscriptions.push(
-        vscode.commands.registerCommand('reactive-jupyter.sync-all', createComputeAction({ rebuild: true, current_line: null, upstream: true, downstream: true, stale_only: true, to_launch_compute: true }, globalState, output))
-    );
+
+
 
     // await preparePythonEnvForReactivePythonAction(output);
 
