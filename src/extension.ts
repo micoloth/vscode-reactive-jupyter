@@ -493,6 +493,7 @@ async function getNotebookAndKernel(globalState: Map<string, string>, editor: Te
 const editorToIWKey = (editorUri: string) => 'editorToIWKey' + editorUri;
 const editorToKernelKey = (editorUri: string) => 'editorToIWKey' + editorUri;
 const editorConnectionStateKey = (editorUri: string) => 'state' + editorUri;
+const editorRebuildPendingKey = (editorUri: string) => 'rebuildPending' + editorUri;
 
 
 type CachedNotebookDocument = { cellCount: number, uri: Uri };
@@ -1035,6 +1036,60 @@ function createPrepareEnvironementAndComputeAction(config: {
 
 
 
+function getOnDidChangeTextEditorSelectionAction(globalState: Map<string, string>, output: OutputChannel, codelensProvider: CellCodelensProvider) {
+    return async (event: vscode.TextEditorSelectionChangeEvent): Promise<void> => {
+        let editor = window.activeTextEditor;
+        if (event.textEditor &&
+            editor &&
+            event.textEditor.document === editor.document &&
+            editor.selection.isEmpty &&
+            getState(globalState, editor) == State.extension_available) {
+            const current_ranges = await getCurrentRangesFromPython(editor, output, globalState, {
+                rebuild: false
+            });
+            if (current_ranges) {
+                updateDecorations(editor, current_ranges);
+            }
+            else {
+                updateDecorations(event.textEditor, []);
+            }
+            let codelense_range = current_ranges ? current_ranges.filter((r) => (r.current && r.state != 'syntaxerror')).map((r) => r.range) : [];
+            codelensProvider.change_range(codelense_range.length > 0 ? codelense_range[0] : undefined);
+        } else {
+            updateDecorations(event.textEditor, []);
+            codelensProvider.change_range(undefined);
+        }
+    };
+}
+
+function getOnDidChangeTextDocumentAction(globalState: Map<string, string>, output: OutputChannel): (e: vscode.TextDocumentChangeEvent) => any {
+    return async (event) => {
+            let editor = window.activeTextEditor;
+            if (editor && event.document === editor.document) {
+                if (getState(globalState, editor) !== State.extension_available) { return; }
+                const current_ranges = await getCurrentRangesFromPython(editor, output, globalState, {
+                    rebuild: true
+                });
+                if (!current_ranges) return;
+                await updateDecorations(editor, current_ranges);
+            }
+        };
+}
+
+function getOnDidChangeActiveTextEditorAction(globalState: Map<string, string>, output: OutputChannel): (e: TextEditor | undefined) => any {
+    return async (editor: TextEditor | undefined) => {
+            if (editor) {
+                if (getState(globalState, editor) !== State.extension_available) { return; }
+                const current_ranges = await getCurrentRangesFromPython(editor, output, globalState, { rebuild: true });
+                if (!current_ranges) return;
+                await updateDecorations(editor, current_ranges);
+            }
+        };
+}
+
+
+
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // ACTIVATION
 ////////////////////////////////////////////////////////////////////////////////////////////////////   
@@ -1110,63 +1165,11 @@ async function defineAllCommands(context: ExtensionContext, output: OutputChanne
 
     ///////// Document Highlights: ///////////////////////
 
-    window.onDidChangeActiveTextEditor(
-        async (editor) => {
-            if (editor) {
-                if (getState(globalState, editor) !== State.extension_available) { return; }
-                const current_ranges = await getCurrentRangesFromPython(editor, output, globalState, { rebuild: true });
-                if (!current_ranges) return;
-                await updateDecorations(editor, current_ranges);
-            }
-        },
-        null,
-        Context.subscriptions
-    );
-    workspace.onDidChangeTextDocument(
-        async (event) => {
-            let editor = window.activeTextEditor;
-            if (editor && event.document === editor.document) {
-                if (getState(globalState, editor) !== State.extension_available) { return; }
-                const current_ranges = await getCurrentRangesFromPython(editor, output, globalState, {
-                    rebuild: true
-                });
-                if (!current_ranges) return;
-                await updateDecorations(editor, current_ranges);
-            }
-        },
-        null,
-        Context.subscriptions
-    );
-    window.onDidChangeTextEditorSelection(
-        async (event) => {
-            let editor = window.activeTextEditor;
-            if (
-                event.textEditor &&
-                editor &&
-                event.textEditor.document === editor.document &&
-                editor.selection.isEmpty && 
-                getState(globalState, editor) == State.extension_available
-            ) {
-                const current_ranges = await getCurrentRangesFromPython(editor, output, globalState, {
-                    rebuild: false
-                });
-                if (current_ranges) {
-                    updateDecorations(editor, current_ranges);
-                }
-                else{
-                    updateDecorations(event.textEditor, []);
-                }
-                let codelense_range = current_ranges ? current_ranges.filter((r) => (r.current && r.state != 'syntaxerror')).map((r) => r.range) : [];
-                codelensProvider.change_range(codelense_range.length > 0 ? codelense_range[0] : undefined);
-            } else {
-                updateDecorations(event.textEditor, []);
-                codelensProvider.change_range(undefined);
-            }
-        },
-        null,
-        Context.subscriptions
-    );
+    workspace.onDidChangeTextDocument( getOnDidChangeTextDocumentAction(globalState, output), null, Context.subscriptions );
+    window.onDidChangeActiveTextEditor( getOnDidChangeActiveTextEditorAction(globalState, output), null, Context.subscriptions );
+    window.onDidChangeTextEditorSelection( getOnDidChangeTextEditorSelectionAction(globalState, output, codelensProvider), null, Context.subscriptions );
 }
+
 
 
 
