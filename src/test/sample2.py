@@ -197,3 +197,27 @@ b = a +5+5
 
 
 
+
+
+
+
+
+
+mylist = [ 1,2,300 ]
+
+mylist
+
+# % [
+mylist.append(4)
+mylist.append(5)
+mylist.append(6)
+mylist.append(7)
+mylist = mylist
+# % ] 
+
+mylist
+
+
+
+
+
