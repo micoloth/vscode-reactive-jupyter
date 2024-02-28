@@ -15,7 +15,7 @@
 A simple [Visual Studio Code](https://code.visualstudio.com/) extension to add support for **Reactive Execution** of a Python script.
 
 
-This extension performs simple Static Code Analysis to find dependencies between the various statements in a Python script. When you modify a line in a file, it will be marked as Stale together with all the lines that depend on it.
+This extension performs simple Static Code Analysis to find dependencies between the various statements in a Python script. When you modify a line, it will be marked as Stale together with all the lines that depend on it.
 
 This extension is in **PREVIEW**. Please don't expect it to run flawlessly. Also, read about the limitations below.
 
