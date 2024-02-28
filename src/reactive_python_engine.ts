@@ -936,11 +936,8 @@ class ReactivePythonDagBuilderUtils__():
         except SyntaxError as e:
             # Get the line number of the syntax error:
             line_number = e.lineno
-            self.syntax_error_range = [[line_number-1 if line_number else line_number, line_number, "syntaxerror", "current"]]
-            if line_number and not (current_line and -2 < line_number - current_line < 2):
-                return json.dumps(self.syntax_error_range)
-            else:
-                return []
+            self.syntax_error_range = [line_number-1 if line_number else line_number, line_number]
+            return
         
         try:
             dagnodes = self.ast_to_dagnodes(ast_tree, code)
@@ -956,7 +953,7 @@ class ReactivePythonDagBuilderUtils__():
             
             if not self.locked_for_execution:  # Should never happen, but better be careful
                 self.current_dag = new_dag
-            return True
+            return
         except Exception as e:
             print(e)
             # raise e
@@ -964,13 +961,15 @@ class ReactivePythonDagBuilderUtils__():
 
     def update_dag_and_get_ranges(self, code: Optional[str] = None, current_line: Optional[int] = None, get_upstream=True, get_downstream=True, stale_only=False, include_code=False):
         if code and not self.locked_for_execution: 
-            result = self.update_dag(code) 
-            if result != True:
-                return result
+            errors = self.update_dag(code) 
+            if errors:
+                return errors
         if self.syntax_error_range:
-            line_number = self.syntax_error_range[0][0]
-            if line_number and not (current_line and -2 < line_number - current_line < 2):
-                return json.dumps(self.syntax_error_range)
+            line_number = self.syntax_error_range[0]
+            other_selection = line_number and current_line and not -2 <= (line_number - current_line) <= 2
+            if other_selection:
+                syntax_error_range = [[line_number-1 if line_number else line_number, line_number, "syntaxerror", ""]]
+                return json.dumps(syntax_error_range)
             else:
                 return []
         if self.current_dag:

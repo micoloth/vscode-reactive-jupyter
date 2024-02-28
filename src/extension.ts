@@ -785,7 +785,7 @@ const getTextInRanges = (ranges: AnnotatedRange[]): string[] => {
 
 const getEditorCurrentText = (editor: TextEditor): { currentQuery: string; currentRange: Range | null } => {
     // Currently not used..
-    
+
     if (!editor || !editor.document || editor.document.uri.scheme === 'output') {
         return {
             currentQuery: '',
@@ -855,27 +855,14 @@ const HighlightOutdatedCurrent = window.createTextEditorDecorationType({
 });
 
 let updateDecorations = async (editor: TextEditor, ranges_out: AnnotatedRange[]) => {
-    // if (!Config.highlightQuery) return;
     if (
         !editor ||
         !editor.document ||
         editor.document.uri.scheme === 'output'
-        //  || !this.registeredLanguages.includes(editor.document.languageId) // <--- COMES FROM this.registeredLanguages = Config.codelensLanguages;  // See Config below
     ) {
         return;
     }
     try {
-        // const { currentRange, currentQuery } = getEditorCurrentText(editor);
-        // if (!currentRange || !currentQuery) return;
-        // let command = getCommandToGetRangeToSelectFromPython(currentRange.start.line.toString());
-
-        // Save the range associated with this editor:
-        // 1. Get the Kernel uuid:
-        // let kernel_uuid = editor.document.uri;
-        // // 2. Set current editor ranges in global state:
-        // await globalState.update(kernel_uuid.toString() + '_ranges', ranges_out);
-
-        // Set highlight on all the ranges in ranges_out with state == 'synced'
         let sync_ranges = ranges_out.filter((r) => r.state == 'synced' && !r.current).map((r) => r.range);
         editor.setDecorations(HighlightSynced, sync_ranges);
         let sync_curr_ranges = ranges_out.filter((r) => r.state == 'synced' && r.current).map((r) => r.range);
@@ -930,7 +917,6 @@ export class CellCodelensProvider implements vscode.CodeLensProvider {
     ): vscode.CodeLens[] | Thenable<vscode.CodeLens[]> {
         let editor = vscode.window.activeTextEditor;
         if (editor && this.range && editor.document.uri == document.uri) {
-            // Current line:
             this.codeLenses = [
                 new vscode.CodeLens(new vscode.Range(this.range.start.line, 0, this.range.end.line, 0), {
                     title: 'sync upstream',
@@ -964,7 +950,6 @@ export class CellCodelensProvider implements vscode.CodeLensProvider {
 }
 
 export class InitialCodelensProvider implements vscode.CodeLensProvider {
-    private started_at_least_once: vscode.CodeLens[] = [];
     public provideCodeLenses(
         document: vscode.TextDocument,
         token: vscode.CancellationToken
