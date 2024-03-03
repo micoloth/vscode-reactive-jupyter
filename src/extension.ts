@@ -1107,19 +1107,14 @@ function getEditingState(globals: Map<string, string>, editor: TextEditor): [Edi
 function getOnDidChangeTextEditorSelectionAction(globals: Map<string, string>, output: OutputChannel, codelensProvider: CellCodelensProvider) {
     return async (event: vscode.TextEditorSelectionChangeEvent): Promise<void> => {
         let editor = window.activeTextEditor;
-        if (event.textEditor &&
-            editor &&
-            event.textEditor.document === editor.document &&
-            editor.selection.isEmpty && 
-            getKernelState(globals, editor) == KernelState.extension_available && 
-            getEditingState(globals, editor)[0] == EditingState.rebuilt) {
-                let current_ranges = await getCurrentRangesFromPython(editor, output, globals, { rebuild: false });
-                updateDecorations(editor, current_ranges ? current_ranges : []);
-                let codelense_range = current_ranges ? current_ranges.filter((r) => (r.current && r.state != 'syntaxerror')).map((r) => r.range) : [];
-                codelensProvider.change_range(codelense_range.length > 0 ? codelense_range[0] : undefined);
-        } else {
+        if (!(event.textEditor && editor && event.textEditor.document === editor.document && editor.selection.isEmpty)) {
             updateDecorations(event.textEditor, []);
             codelensProvider.change_range(undefined);
+        } else if (getKernelState(globals, editor) == KernelState.extension_available && getEditingState(globals, editor)[0] == EditingState.rebuilt) {
+            let current_ranges = await getCurrentRangesFromPython(editor, output, globals, { rebuild: false });
+            updateDecorations(editor, current_ranges ? current_ranges : []);
+            let codelense_range = current_ranges ? current_ranges.filter((r) => (r.current && r.state != 'syntaxerror')).map((r) => r.range) : [];
+            codelensProvider.change_range(codelense_range.length > 0 ? codelense_range[0] : undefined);
         }
     };
 }
