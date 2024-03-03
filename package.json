@@ -67,6 +67,15 @@
 				"id": "reactivejupyter.syncedCurrentCell",
 				"description": "Background decoration color for synced unselected cell",
 				"defaults": {
+					"dark": "#0dca3992",
+					"light": "#0dca3992",
+					"highContrast": "#0dca3992"
+				}
+			},
+			{
+				"id": "reactivejupyter.VeryBrightGreen",
+				"description": "Background decoration color for synced unselected cell",
+				"defaults": {
 					"dark": "#0dca39c8",
 					"light": "#0dca39c8",
 					"highContrast": "#0dca39c8"
@@ -76,13 +85,22 @@
 				"id": "reactivejupyter.outdatedCell",
 				"description": "Background decoration color for current query",
 				"defaults": {
-					"dark": "#d4164658",
-					"light": "#d4164658",
-					"highContrast": "#d4164658"
+					"dark": "#d4164657",
+					"light": "#d4164657",
+					"highContrast": "#d4164657"
 				}
 			},
 			{
 				"id": "reactivejupyter.outdatedCurrentCell",
+				"description": "Background decoration color for current query",
+				"defaults": {
+					"dark": "#d4164692",
+					"light": "#d4164692",
+					"highContrast": "#d4164692"
+				}
+			},
+			{
+				"id": "reactivejupyter.VeryBrightRed",
 				"description": "Background decoration color for current query",
 				"defaults": {
 					"dark": "#d41646da",
