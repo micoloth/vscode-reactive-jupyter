@@ -30,7 +30,7 @@ This extension is in **PREVIEW**. Please don't expect it to run flawlessly. Also
 
   1. Install the extension. The [Jupyter](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.jupyter) extension should be installed as well.
 
-  2. Add these settings for the Jupyter extension in your `settings.json` file: these are required to work with Reactive Jupyter. If they set differently, you will be prompted to change them.
+  2. Add these settings for the Jupyter extension in your `settings.json` file: these are required to work with Reactive Jupyter. If they are set differently, you will be prompted to change them.
 
     "jupyter.interactiveWindow.creationMode": "perFile",
     "jupyter.interactiveWindow.textEditor.executeSelection": false
