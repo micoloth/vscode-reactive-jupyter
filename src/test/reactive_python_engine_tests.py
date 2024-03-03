@@ -1,3 +1,52 @@
+
+
+
+
+
+
+
+
+from src.reactive_python_engine import reactive_python_dag_builder_utils__
+
+# import "time":
+import time
+import ast
+
+
+draw_dag = reactive_python_dag_builder_utils__.draw_dag
+update_staleness_info_in_new_dag = reactive_python_dag_builder_utils__.update_staleness_info_in_new_dag
+get_input_variables_for = reactive_python_dag_builder_utils__.get_input_variables_for
+get_output_variables_for = reactive_python_dag_builder_utils__.get_output_variables_for
+annotate = reactive_python_dag_builder_utils__.annotate
+
+
+
+code = """
+with a+b as f:
+    c = f + 4
+    c = c + d
+    k = f + e
+"""
+tree = ast.parse(code).body[0]
+inputs, errors = get_input_variables_for(annotate(tree)); inputs
+assert inputs == {'a', 'b', 'd', 'e'}
+outputs, errors = get_output_variables_for(annotate(tree)); outputs
+assert outputs == {'c', 'k', 'f'}
+
+
+d, e = 5, 6
+with open('package.json', 'r') as f:
+    # Get the first line:
+    k = f.readline()
+    c = d+e
+
+k
+f
+
+
+
+
+
 sample_python_code = """
 import pandas as pd
 
@@ -147,19 +196,6 @@ def test_dag_builder():
 # %autoreload 2
 
 
-from reactive_python_engine import reactive_python_dag_builder_utils__
-
-# import "time":
-import time
-import ast
-
-
-draw_dag = reactive_python_dag_builder_utils__.draw_dag
-update_staleness_info_in_new_dag = reactive_python_dag_builder_utils__.update_staleness_info_in_new_dag
-get_input_variables_for = reactive_python_dag_builder_utils__.get_input_variables_for
-get_output_variables_for = reactive_python_dag_builder_utils__.get_output_variables_for
-annotate = reactive_python_dag_builder_utils__.annotate
-
 
 code = """
 # % [
@@ -185,6 +221,7 @@ reactive_python_dag_builder_utils__.update_dag_and_get_ranges(code=code, include
 
 
 current_time = time.time()
+
 
 
 # test
@@ -989,7 +1026,24 @@ assert inputs == {'a', 'b'}
 outputs, errors = get_output_variables_for(annotate(tree)); outputs
 assert outputs == {'a', 'b'}
 
+code = """
+a, b = (1, c[d])
+"""
+tree = ast.parse(code).body[0]
+inputs, errors = get_input_variables_for(annotate(tree)); inputs
+assert inputs == {'c', 'd'}
+outputs, errors = get_output_variables_for(annotate(tree)); outputs
+assert outputs == {'a', 'b'}
 
+
+code = """
+k.fields = (1, c[d])
+"""
+tree = ast.parse(code).body[0]
+inputs, errors = get_input_variables_for(annotate(tree)); inputs
+assert inputs == {'c', 'd', 'k'}
+outputs, errors = get_output_variables_for(annotate(tree)); outputs
+assert outputs == {'k'}
 
 
 ######################## TODO/ Wrong stuff:
