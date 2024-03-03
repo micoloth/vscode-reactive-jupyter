@@ -107,12 +107,18 @@ async function executeCodeInKernel(code: string, kernel: Kernel, output_channel:
     return result;
 }
 
+enum IWExecutionResult {
+    Succeeded = 'Succeeded',
+    Failed = 'Failed',
+    NotebookClodsed = 'NotebookClodsed'
+}
+
 async function executeCodeInInteractiveWindow(
     text: string,
     notebook: NotebookDocument,
     output: OutputChannel | null,
-): Promise<boolean> {
-    // Currently returns True or False, depending if the code was executed successfully or not. TODO: Rethink if you need something more...
+): Promise<IWExecutionResult> {
+    // Currently returns an IWExecutionResult. TODO: Rethink if you need something more...
 
     await vscode.commands.executeCommand('jupyter.execSelectionInteractive', text);
     // OTHER THINGS I TRIED:
@@ -136,27 +142,30 @@ async function executeCodeInInteractiveWindow(
 
     if (!cell) {
         window.showErrorMessage('Reactive Jupyter: Failed to execute the code in the Interactive Window: No matching cell was identified');
-        return false;
+        return IWExecutionResult.NotebookClodsed;
     }
 
     let cell_state = CellState.Undefined;
     await new Promise((resolve) => setTimeout(resolve, 250));
     for (let i = 0; i > -1; i++) {
+        if (!notebook || notebook.isClosed || cell.notebook.isClosed) {
+            return IWExecutionResult.NotebookClodsed;
+        }
         cell_state = getCellState(cell);
         if (cell_state === CellState.Success) { 
             if (has_error_mime(cell)) {
-                return false;
+                return IWExecutionResult.Failed;
             }
-            return true; 
+            return IWExecutionResult.Succeeded; 
         }
         else if (cell_state === CellState.Error) { 
-            return false; 
+            return IWExecutionResult.Failed; 
         }
         await new Promise((resolve) => setTimeout(resolve, 250));
     }
 
     window.showErrorMessage('Reactive Jupyter: Failed to execute the code in the Interactive Window: The cell did not finish executing');
-    return false;
+    return IWExecutionResult.Failed;
 
 }
 
@@ -235,7 +244,11 @@ async function safeExecuteCodeInInteractiveWindow(
     let [notebook, kernel] = notebookAndKernel;
     updateKernelState(globals, editor, KernelState.explicit_execution_started);
     const result = await executeCodeInInteractiveWindow(command, notebook, output);
-    if (return_to_initial_state) { updateKernelState(globals, editor, expected_initial_state); }
+    if (result == IWExecutionResult.NotebookClodsed) {
+        window.showErrorMessage("Reactive Jupyter: Lost Connection to this editor's Notebook. Please initialize the extension with the command 'Initialize Reactive Jupyter' or the CodeLens at the top");
+        updateKernelState(globals, editor, KernelState.initializable_messaged);
+    }
+    else if (return_to_initial_state) { updateKernelState(globals, editor, expected_initial_state); }
     return result;
 }
 
@@ -270,7 +283,7 @@ async function queueComputation(
             }
 
             let res = await safeExecuteCodeInInteractiveWindow(range.text, activeTextEditor, output, globals);
-            if (!res) { break; }
+            if ( res != IWExecutionResult.Succeeded ) { break; }
 
             const update_result = await safeExecuteCodeInKernel(getSyncRangeCommand(range), activeTextEditor, output, globals);
             if (!update_result) {
@@ -289,10 +302,8 @@ async function queueComputation(
         }
     }
     const update_result = await safeExecuteCodeInKernel(getUnlockCommand(), activeTextEditor, output, globals);
-    if (!update_result) {
+    if (getKernelState(globals, activeTextEditor) == KernelState.extension_available && !update_result) {
         vscode.window.showErrorMessage('Reactive Jupyter: Failed to unlock the Python kernel: ' + update_result);
-    }
-    else {
     }
 }
 
@@ -416,8 +427,8 @@ const kernelStateTransitions: Map<KernelState, KernelState[]> = new Map([
     [KernelState.kernel_available, [KernelState.instantialization_started, KernelState.extension_available].concat(kernelIinitialStates)],
     [KernelState.instantialization_started, [KernelState.extension_available].concat(kernelIinitialStates)],
     [KernelState.extension_available, [KernelState.explicit_execution_started, KernelState.implicit_execution_started].concat(kernelIinitialStates)],
-    [KernelState.explicit_execution_started, [KernelState.extension_available]],
-    [KernelState.implicit_execution_started, [KernelState.extension_available]],
+    [KernelState.explicit_execution_started, [KernelState.extension_available].concat(kernelIinitialStates)],
+    [KernelState.implicit_execution_started, [KernelState.extension_available].concat(kernelIinitialStates)],
 ]);
 
 function updateKernelState(globals: Map<string, string>, editor: TextEditor, newState_: string) {
