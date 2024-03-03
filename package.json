@@ -207,7 +207,20 @@
 				"key": "shift+enter",
 				"when": "isWorkspaceTrusted && editorTextFocus && editorLangId == python && !notebookEditorFocused"
 			}
-		]
+		],
+		"configuration": {
+			"title": "Reactive Jupyter",
+			"type": "object",
+			"properties": {
+				"reactiveJupyter.showCodeLenses": {
+					"type": "boolean",
+					"default": true,
+					"description": "Show code lens for code actions above the current line",
+					"scope": "machine"
+				}
+			}
+		}
+				
 	},
 	"scripts": {
 		"compile": "webpack",

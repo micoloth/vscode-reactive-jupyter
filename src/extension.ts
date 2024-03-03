@@ -950,7 +950,9 @@ export class CellCodelensProvider implements vscode.CodeLensProvider {
         token: vscode.CancellationToken
     ): vscode.CodeLens[] | Thenable<vscode.CodeLens[]> {
         let editor = vscode.window.activeTextEditor;
-        if (editor && this.range && editor.document.uri == document.uri) {
+        // Get the "reactiveJupyter.showCodeLenses" extension setting is True:
+        let showCodeLenses = vscode.workspace.getConfiguration('reactiveJupyter').get<boolean>('showCodeLenses');
+        if (editor && this.range && editor.document.uri == document.uri && showCodeLenses) {
             this.codeLenses = [
                 new vscode.CodeLens(new vscode.Range(this.range.start.line, 0, this.range.end.line, 0), {
                     title: 'sync upstream',
