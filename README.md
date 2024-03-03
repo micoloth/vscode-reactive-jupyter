@@ -106,3 +106,20 @@ There are 2 ways of doing this in `reactive-jupyter`:
       ```
 
     will be joined into a single block, and will be propagated as expected.
+
+
+# Advanced Usage:
+
+If you want to jump right into the action with a single click, these commands are also exposed:
+
+ - `reactive-jupyter.initialize-and-sync-downstream`
+ - `reactive-jupyter.initialize-and-sync-upstream`
+ - `reactive-jupyter.initialize-and-sync-upstream-and-downstream`
+ - `reactive-jupyter.initialize-and-sync-all`
+ - `reactive-jupyter.initialize-and-sync-current`
+
+These will initialize the extension if it was inactive, and immediatly start running code, hence saving you a step. Feel free to bind them to your favorite shortcuts.
+
+
+
+Furthermore: if after a while the Codelenses start getting annoying, you can disable them with the `reactive-jupyter.showCodelenses` setting.
