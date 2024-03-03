@@ -383,7 +383,7 @@ function updateState<STATE>(globals: Map<string, string>, key: string, newState_
             return;
         }
         else {
-            window.showErrorMessage('Reactive Jupyter: Invalid state transition: ' + currentState + ' -> ' + newState);
+            window.showErrorMessage('Reactive Jupyter: Invalid state transition: ' + currentState + ' -> ' + newState + '. If you could report this bug, it would be great.');
             throw new Error('Invalid initial state: ' + newState + ' , please initialize your editor first');
         }
     }
@@ -392,7 +392,7 @@ function updateState<STATE>(globals: Map<string, string>, key: string, newState_
         globals.set(key, newState as string);
     }
     else {
-        window.showErrorMessage('Reactive Jupyter: Invalid state transition: ' + currentState + ' -> ' + newState);
+        window.showErrorMessage('Reactive Jupyter: Invalid state transition: ' + currentState + ' -> ' + newState + '. If you could report this bug, it would be great.');
         throw new Error('Invalid state transition: ' + currentState + ' -> ' + newState);
     }
 }
@@ -520,7 +520,8 @@ async function getNotebookAndKernel(globals: Map<string, string>, editor: TextEd
 const editorToIWKey = (editorUri: string) => 'editorToIWKey' + editorUri;
 const editorToKernelKey = (editorUri: string) => 'editorToIWKey' + editorUri;
 const editorConnectionStateKey = (editorUri: string) => 'state' + editorUri;
-const editorRebuildPendingKey = (editorUri: string) => 'rebuildPending' + editorUri;
+const editorRebuildKey = (editorUri: string) => 'editorRebuild' + editorUri;
+const editorLastEventTimestampKey = (editorUri: string) => 'editorLastEventTimestamp' + editorUri;
 
 
 type CachedNotebookDocument = { cellCount: number, uri: Uri };
@@ -627,6 +628,10 @@ async function preparePythonEnvForReactivePython(editor: TextEditor, globals: Ma
 
     // Immediately start coloring ranges:
 
+    // updateEditingState(globals, editor, EditingState.rebuilt);
+    // I'm taking the liberty of overriding the State Machine here, because I can, and because inititializingthe extension should Always reset that state anyway
+    const key = editorRebuildKey(editor.document.uri.toString());
+    globals.set(key, EditingState.rebuilt as string)
     let refreshed_ranges = await getCurrentRangesFromPython(editor, null, globals, {
         rebuild: true,
         current_line: null
@@ -637,6 +642,7 @@ async function preparePythonEnvForReactivePython(editor: TextEditor, globals: Ma
     else{
         updateDecorations(editor, []);
     }
+
 }
 
 
@@ -1070,23 +1076,31 @@ function createPrepareEnvironementAndComputeAction(config: {
 // TODO- Right now, this is not much of a state machine. But there is the infrastructure in place to complicate it...
 enum EditingState {
     rebuilt = 'rebuilt',
-    rebuildPending = 'rebuildPending',
+    rebuildNeeded = 'rebuildNeeded',
+    rebuildStarted = 'rebuildStarted',
+    rebuildingStaleStuff = 'rebuildingStaleStuff',
 }
-const highlightIinitialStates = [EditingState.rebuildPending, EditingState.rebuilt];
+const highlightIinitialStates = [EditingState.rebuilt];
 const highlightStateTransitions: Map<EditingState, EditingState[]> = new Map([
-    [EditingState.rebuilt, [EditingState.rebuildPending, EditingState.rebuilt]],
-    [EditingState.rebuildPending, [EditingState.rebuilt, EditingState.rebuildPending]],
+    [EditingState.rebuilt, [EditingState.rebuildNeeded]],
+    [EditingState.rebuildNeeded, [EditingState.rebuildNeeded, EditingState.rebuildStarted]],
+    [EditingState.rebuildStarted, [EditingState.rebuildNeeded, EditingState.rebuilt]],
+    [EditingState.rebuildingStaleStuff, [EditingState.rebuildingStaleStuff, EditingState.rebuildStarted]],
 ]);
 
-function updateEditingState(globals: Map<string, string>, editor: TextEditor, newState_: string) {
-    const key = editorRebuildPendingKey(editor.document.uri.toString());
+function updateEditingState(globals: Map<string, string>, editor: TextEditor, newState_: string, timestamp: EpochTimeStamp = Date.now()) {
+    const key = editorRebuildKey(editor.document.uri.toString());
     updateState<EditingState>(globals, key, newState_, highlightStateTransitions, highlightIinitialStates);
+    globals.set(editorLastEventTimestampKey(editor.document.uri.toString()), timestamp.toString());
 }
 
-function getEditingState(globals: Map<string, string>, editor: TextEditor): EditingState | boolean {
-    return getState<EditingState>(globals, editorRebuildPendingKey(editor.document.uri.toString()));
+function getEditingState(globals: Map<string, string>, editor: TextEditor): [EditingState | boolean, EpochTimeStamp | undefined] {
+    let timestamp = globals.get(editorLastEventTimestampKey(editor.document.uri.toString()));
+    return [
+        getState<EditingState>(globals, editorRebuildKey(editor.document.uri.toString())),
+        timestamp ? parseInt(timestamp) : undefined
+    ];
 }
-
 
 function getOnDidChangeTextEditorSelectionAction(globals: Map<string, string>, output: OutputChannel, codelensProvider: CellCodelensProvider) {
     return async (event: vscode.TextEditorSelectionChangeEvent): Promise<void> => {
@@ -1095,10 +1109,9 @@ function getOnDidChangeTextEditorSelectionAction(globals: Map<string, string>, o
             editor &&
             event.textEditor.document === editor.document &&
             editor.selection.isEmpty && 
-            getKernelState(globals, editor) == KernelState.extension_available) {
-                let current_ranges = await getCurrentRangesFromPython(editor, output, globals, { 
-                    rebuild: (getEditingState(globals, editor) !== EditingState.rebuilt) ? true : false });
-                updateEditingState(globals, editor, EditingState.rebuilt);
+            getKernelState(globals, editor) == KernelState.extension_available && 
+            getEditingState(globals, editor)[0] == EditingState.rebuilt) {
+                let current_ranges = await getCurrentRangesFromPython(editor, output, globals, { rebuild: false });
                 updateDecorations(editor, current_ranges ? current_ranges : []);
                 let codelense_range = current_ranges ? current_ranges.filter((r) => (r.current && r.state != 'syntaxerror')).map((r) => r.range) : [];
                 codelensProvider.change_range(codelense_range.length > 0 ? codelense_range[0] : undefined);
@@ -1109,31 +1122,50 @@ function getOnDidChangeTextEditorSelectionAction(globals: Map<string, string>, o
     };
 }
 
+const CONTENTCHANGE_LENGHT_ABOVE_WHICH_ALWAYS_TRIGGER_REBUILD = 15;
+
 
 function getOnDidChangeTextDocumentAction(globals: Map<string, string>, output: OutputChannel): (e: vscode.TextDocumentChangeEvent) => any {
-    return async (event) => {
-            let editor = window.activeTextEditor;
-            if (editor && event.document === editor.document) {
-                if (getKernelState(globals, editor) !== KernelState.extension_available) { 
-                    updateEditingState(globals, editor, EditingState.rebuildPending);
-                } else {
-                    const current_ranges = await getCurrentRangesFromPython(editor, output, globals, { rebuild: true });
-                    updateEditingState(globals, editor, EditingState.rebuilt);
-                    updateDecorations(editor, current_ranges ? current_ranges : []);
-                }
-            }
+    return async (event: vscode.TextDocumentChangeEvent) => {
+        let editor = window.activeTextEditor;
+        if (
+                editor 
+                && event.document === editor.document 
+                && event.contentChanges.length > 0
+                && getEditingState(globals, editor)[0] != false) {
+            // Set the current timstamp:
+            const timestamp = Date.now();
+            // Set the state to rebuildNeeded:
+            updateEditingState(globals, editor, EditingState.rebuildNeeded, timestamp);
+            // Check if ANY of the contentChanges's has length > CONTENTCHANGE_LENGHT_ABOVE_WHICH_ALWAYS_TRIGGER_REBUILD:
+            let should_rebuild_immediatly = event.contentChanges.some((change) => change.text.length > CONTENTCHANGE_LENGHT_ABOVE_WHICH_ALWAYS_TRIGGER_REBUILD);
+            await new Promise((resolve) => setTimeout(resolve, should_rebuild_immediatly ? 50 : 1000));
+            // Get latest timestamp:
+            let [state, last_timestamp] = getEditingState(globals, editor);
+            // If last timestamp is greater than the one we set,OR state != rebuildNeeded, then it means that another event has been triggered, so we don't need to do anything:
+            if ((last_timestamp && last_timestamp > timestamp) || state != EditingState.rebuildNeeded) { return; }
+            // Otherwise, we should rebuild:
+            updateEditingState(globals, editor, EditingState.rebuildStarted, );
+            const current_ranges = await getCurrentRangesFromPython(editor, output, globals, { rebuild: true });
+            console.log('Are you not triggering everything here??: ', current_ranges);
+            updateDecorations(editor, current_ranges ? current_ranges : []);
+            // IF the state is STILL rebuildStarted, then we update the state to rebuilt:
+            let [state_, last_timestamp_] = getEditingState(globals, editor);
+            if (state_ == EditingState.rebuildStarted) { updateEditingState(globals, editor, EditingState.rebuilt, ); }
         };
+    }
 }
+    
 
 function getOnDidChangeActiveTextEditorAction(globals: Map<string, string>, output: OutputChannel): (e: TextEditor | undefined) => any {
-    return async (editor: TextEditor | undefined) => {
-            if (editor) {
-                if (getKernelState(globals, editor) !== KernelState.extension_available) { return; }
-                const current_ranges = await getCurrentRangesFromPython(editor, output, globals, { rebuild: true });
-                if (!current_ranges) return;
-                await updateDecorations(editor, current_ranges);
-            }
-        };
+return async (editor: TextEditor | undefined) => {
+        if (editor) {
+            if (getKernelState(globals, editor) !== KernelState.extension_available) { return; }
+            const current_ranges = await getCurrentRangesFromPython(editor, output, globals, { rebuild: true });
+            if (!current_ranges) return;
+            await updateDecorations(editor, current_ranges);
+        }
+    };
 }
 
 
