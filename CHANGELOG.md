@@ -1,5 +1,10 @@
 
 
+## 0.2.0 - 2024-03-01
+* Disable Codelenses setting
+* Sligthly lighter colors
+* Bugfixes
+
 ## 0.0.5 - 2024-02-25
 * Marketplace integration
 

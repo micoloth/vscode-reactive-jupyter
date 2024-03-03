@@ -79,10 +79,10 @@ chmod +x ./scriptt.sh
 
 #######################TODO:
 
- - Check why SyntaxErrors Range dont ALWAYS rebuild (ongoing)
+ - DONE Check why SyntaxErrors Range dont ALWAYS rebuild (ongoing)
  - DONE Fix bug: when you close terminal on execution_explicit (or implicit), it gets stuck
- - Fix bug: "with f: open" syntax propagates weirdly (it should NOT count the f as Output ...)
- - Feature: Setting to remove Codelenses
- - Feature: Less bright colors
- - Feature: Color less often while writing (this is complicated...)
- - Small typo in Readme
+ - DONE Fix "bug": "with f: open" syntax propagates weirdly (it should NOT count the f as Output ...)
+ - DONE Feature: Color less often while writing (this is complicated...)
+ - DONE Small typo in Readme
+ - DONE Feature: Less bright colors
+ - DONE Feature: Setting to remove Codelenses
