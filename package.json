@@ -9,7 +9,7 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": ""
+		"url": "https://github.com/micoloth/vscode-reactive-jupyter"
 	},
 	"homepage": "https://github.com/micoloth/vscode-reactive-jupyter",
 	"bugs": {
@@ -24,7 +24,7 @@
 		"color": "#ffffff",
 		"theme": "light"
 	},
-	"version": "0.2.1",
+	"version": "0.2.2",
 	"engines": {
 		"vscode": "^1.85.0"
 	},
