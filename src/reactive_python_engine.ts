@@ -29,7 +29,7 @@ class ReactivePythonDagBuilderUtils__():
             temp_scope: "TempScope"
             is_input: Optional[bool]
             is_output: Optional[bool]
-            is_assignement: Optional[bool]
+            is_assignment: Optional[bool]
 
 
         ####################################################################################################
@@ -49,6 +49,12 @@ class ReactivePythonDagBuilderUtils__():
 
         @dataclasses.dataclass
         class FunctionTempScope():
+            node: ast.AST
+            parent: "TempScope"
+            variables: TempScopeVariables = dataclasses.field(default_factory=TempScopeVariables)
+
+        @dataclasses.dataclass
+        class BlockTempScope():  # This is used for With and ForLoops !
             node: ast.AST
             parent: "TempScope"
             variables: TempScopeVariables = dataclasses.field(default_factory=TempScopeVariables)
@@ -97,6 +103,13 @@ class ReactivePythonDagBuilderUtils__():
             children: List["Scope"] = dataclasses.field(default_factory=list) 
 
         @dataclasses.dataclass
+        class BlockScope():    # This is used for With and ForLoops !
+            parent: "Scope"
+            node: ast.AST
+            variables: Variables = dataclasses.field(default_factory=Variables)
+            children: List["Scope"] = dataclasses.field(default_factory=list) 
+
+        @dataclasses.dataclass
         class ClassScope():
             parent: "Scope"
             class_node: ast.ClassDef
@@ -124,9 +137,9 @@ class ReactivePythonDagBuilderUtils__():
             def visit_Name(self, name_node, ):
                 is_input = type(name_node.ctx) is ast.Load or self.is_also_input_of_aug_assign
                 is_output = self.is_lhs_target or type(name_node.ctx) is ast.Store or type(name_node.ctx) is ast.Del
-                is_assignement = type(name_node.ctx) is ast.Store or type(name_node.ctx) is ast.Del
+                is_assignment = type(name_node.ctx) is ast.Store or type(name_node.ctx) is ast.Del
                 
-                self.all_tempscope_data[name_node] = AstNodeData(name_node.id, self.current_tempscope, is_input, is_output, is_assignement)
+                self.all_tempscope_data[name_node] = AstNodeData(name_node.id, self.current_tempscope, is_input, is_output, is_assignment)
                 if is_input:
                     self.current_tempscope.variables.referenced_variables.add(name_node.id)           
                 elif is_output:
@@ -215,6 +228,24 @@ class ReactivePythonDagBuilderUtils__():
                 ArgumentsVisitor(self, subscope).visit(func_node.args)
                 visit_all(subscope, func_node.body)
 
+            def visit_With(self, node):
+                self.all_tempscope_data[node] = AstNodeData('<with>', self.current_tempscope, False, True, False)
+                _temp_scope = BlockTempScope(node=node, parent=self.current_tempscope)
+                subscope = TempScopeVisitor(_temp_scope, self.all_tempscope_data, self.class_binds_near)
+                visit_all(self, getattr(node, 'type_comment', None))
+                for item in node.items:
+                    if item.optional_vars:
+                        subscope.visit(item.optional_vars)
+                    self.visit(item.context_expr)
+                visit_all(subscope, node.body)
+
+            def visit_For(self, node):
+                self.all_tempscope_data[node] = AstNodeData('<for>', self.current_tempscope, False, True, False)
+                _temp_scope = BlockTempScope(node=node, parent=self.current_tempscope)
+                subscope = TempScopeVisitor(_temp_scope, self.all_tempscope_data, self.class_binds_near)
+                visit_all(self, getattr(node, 'type_comment', None), node.iter, node.target)
+                visit_all(subscope, node.target, node.body, node.orelse)
+
             def _visit_comprehension(self, targets, comprehensions, typ):
                 del typ
                 current_scope = self
@@ -254,8 +285,6 @@ class ReactivePythonDagBuilderUtils__():
                 for name in nonlocal_node.names:
                     self.current_tempscope.variables.nonlocal_variables.add(name)
 
-
-
         class ArgumentsVisitor(ast.NodeVisitor):
             """ Util visitor to handle args only """
             def __init__(self, expr_scope, arg_scope):
@@ -273,7 +302,6 @@ class ReactivePythonDagBuilderUtils__():
                 self.expr_scope.visit(node)
 
 
-
         class ScopeVisitor(ast.NodeVisitor):
             def __init__(self, all_tempscope_data):
                 self.all_tempscope_data: Dict[ast.AST, AstNodeData] = all_tempscope_data
@@ -285,7 +313,7 @@ class ReactivePythonDagBuilderUtils__():
             def _get_scope(self, node, include_as_variable=True):  #  -> Tuple[Scope, bool]
                 """Mainly it gets it out of all_tempscope_data... """
                 tempscope_obj = self.all_tempscope_data[node]
-                parent_tempscope = find_tempscope(tempscope_obj.temp_scope, tempscope_obj.node_name, tempscope_obj.is_assignement)
+                parent_tempscope = find_tempscope(tempscope_obj.temp_scope, tempscope_obj.node_name, tempscope_obj.is_assignment)
                 if parent_tempscope is None:
                     print('OK, yes, this happens..')
                     scope = self.error_scope
@@ -338,6 +366,21 @@ class ReactivePythonDagBuilderUtils__():
                     self.node_to_corresponding_scope[node] = FunctionScope(function_node=node, parent=scope)
                 _add_child(scope, self.node_to_corresponding_scope[node])
                 super().generic_visit(node)
+
+            def visit_With(self, node):
+                scope, is_input, is_output = self._get_scope(node)
+                if node not in self.node_to_corresponding_scope:
+                    self.node_to_corresponding_scope[node] = BlockScope(node=node, parent=scope)
+                _add_child(scope, self.node_to_corresponding_scope[node])
+                super().generic_visit(node)
+            
+            def visit_For(self, node):
+                scope, is_input, is_output = self._get_scope(node)
+                if node not in self.node_to_corresponding_scope:
+                    self.node_to_corresponding_scope[node] = BlockScope(node=node, parent=scope)
+                _add_child(scope, self.node_to_corresponding_scope[node])
+                super().generic_visit(node)
+
 
             def visit_DictComp(self, comp_node):
                 targets=[comp_node.key, comp_node.value]
@@ -416,18 +459,31 @@ class ReactivePythonDagBuilderUtils__():
             elif type(temp_scope) is FunctionTempScope:
                 if name in temp_scope.variables.global_variables:
                     return get_global_scope(temp_scope)
-                if name in temp_scope.variables.nonlocal_variables:
+                elif name in temp_scope.variables.nonlocal_variables:
                     return find_tempscope(get_parent_scope(temp_scope), name, is_assignment, global_acceptable=False)
-                if name in temp_scope.variables.assigned_variables:
+                elif name in temp_scope.variables.assigned_variables:
                     return temp_scope
-                return find_tempscope(get_parent_scope(temp_scope), name, is_assignment, global_acceptable)
+                else:
+                    return find_tempscope(get_parent_scope(temp_scope), name, is_assignment, global_acceptable)
             elif type(temp_scope) is ClassTempScope:
                 if temp_scope.class_binds_near:
                     # anything can be in a class scope
                     return temp_scope
-                if is_assignment:
+                elif is_assignment:
                     return temp_scope
-                return find_tempscope(temp_scope.parent, name, is_assignment, global_acceptable)
+                else:
+                    return find_tempscope(temp_scope.parent, name, is_assignment, global_acceptable)
+            elif type(temp_scope) is BlockTempScope:
+                if is_assignment:
+                    return find_tempscope(get_parent_scope(temp_scope), name, is_assignment, global_acceptable)
+                elif name in temp_scope.variables.global_variables:
+                    return get_global_scope(temp_scope)
+                elif name in temp_scope.variables.nonlocal_variables:
+                    return find_tempscope(get_parent_scope(temp_scope), name, is_assignment, global_acceptable=False)
+                elif name in temp_scope.variables.assigned_variables:
+                    return temp_scope
+                else:
+                    return find_tempscope(get_parent_scope(temp_scope), name, is_assignment, global_acceptable)
             else:
                 raise RuntimeError("Unknown scope type")
 
@@ -435,6 +491,8 @@ class ReactivePythonDagBuilderUtils__():
             if type(temp_scope) is GlobalTempScope:
                 return temp_scope
             elif type(temp_scope) is FunctionTempScope:
+                return get_global_scope(get_parent_scope(temp_scope)) 
+            elif type(temp_scope) is BlockTempScope:
                 return get_global_scope(get_parent_scope(temp_scope)) 
             elif type(temp_scope) is ClassTempScope:
                 return find_tempscope(get_parent_scope(temp_scope), temp_scope, is_assignment=False) # TODO: is_assignment is MADE UP ???
@@ -447,14 +505,10 @@ class ReactivePythonDagBuilderUtils__():
 
 
         def get_name(node):
-            if type(node) is ast.FunctionDef:
-                return node.name
-            elif type(node) is ast.AsyncFunctionDef:
+            if type(node) in [ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef]:
                 return node.name
             elif type(node) is ast.Name:
                 return node.id
-            elif type(node) is ast.ClassDef:
-                return node.name
             elif type(node) is ast.alias:
                 return node.asname if node.asname is not None else node.name
             else:
@@ -2322,6 +2376,13 @@ class ReactivePythonDagBuilderUtils__():
 
 reactive_python_dag_builder_utils__ = ReactivePythonDagBuilderUtils__()
 
+
+
+
+update_staleness_info_in_new_dag = reactive_python_dag_builder_utils__.update_staleness_info_in_new_dag
+get_input_variables_for = reactive_python_dag_builder_utils__.get_input_variables_for
+get_output_variables_for = reactive_python_dag_builder_utils__.get_output_variables_for
+annotate = reactive_python_dag_builder_utils__.annotate
 
 
 `;

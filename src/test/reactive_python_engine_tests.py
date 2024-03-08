@@ -1,107 +1,58 @@
+# sample_python_code = """
+# import pandas as pd
+
+# credentials_redshift = get_credentials_redshift_marketingdb()
+# engine_redshift = connect_to_redshift(credentials_redshift)
+
+# query = \"""
+# select * from delta_old_job full outer join delta_new_job on delta_old_job.ad_id = delta_new_job.ad_id ; 
+# \"""
+
+# df_delta_ven10 = pd.read_sql(query, engine_redshift)
+# some_more_query = query+1
+
+# # Save locally as parquet:
+# # % [
+# df_delta_ven10.to_csv('df_delta_ven10.parquet')
+# len(df_delta_ven10)
+# a, b = 5, 6
+# print(a, b)
+# # % ]
+
+# def set_diff_stats(**kwargs):
+#     assert len(kwargs) == 2, 'set_diff_stats() takes exactly 2 arguments'
+#     (name_set1, name_set2), (set1, set2) = kwargs.keys(), kwargs.values()
+#     set1, set2 = set(set1), set(set2)
+#     print(f'len({name_set1})={len(set1)}', f'len({name_set2})={len(set2)}')
+#     print(f'len({name_set1}.intersection({name_set2}))={len(set1.intersection(set2))}')
+#     print(f'len({name_set1}.difference({name_set2}))={len(set1.difference(set2))}')
+#     print(f'len({name_set2}.difference({name_set1}))={len(set2.difference(set1))}')
+
+#     print(f'Fraction of {name_set1} that is in {name_set2}:', len(set1.intersection(set2)) / len(set1))
+#     print(f'Fraction of {name_set2} that is in {name_set1}:', len(set2.intersection(set1)) / len(set2))
+
+#     # print(f'Elements that are in {name_set1} but not in {name_set2}:', set1.difference(set2))
+#     # print(f'Elements that are in {name_set2} but not in {name_set1}:', set2.difference(set1))
 
 
+# set_diff_stats(df_delta_ven10=df_delta_ven10, user_ads_data_only_PUBLIC=user_ads_data_only_PUBLIC)
 
+# cdc = pd.DataFrame('uhhhhnnhhhhh')
+# for c in cdc:
+#     print(c)
 
+# if 3<5:
+#     print('yes')
+# else:
+#     a=75
+#     print('no')
 
-
-
-
-from src.reactive_python_engine import reactive_python_dag_builder_utils__
-
-# import "time":
-import time
-import ast
-
-
-draw_dag = reactive_python_dag_builder_utils__.draw_dag
-update_staleness_info_in_new_dag = reactive_python_dag_builder_utils__.update_staleness_info_in_new_dag
-get_input_variables_for = reactive_python_dag_builder_utils__.get_input_variables_for
-get_output_variables_for = reactive_python_dag_builder_utils__.get_output_variables_for
-annotate = reactive_python_dag_builder_utils__.annotate
-
-
-
-code = """
-with a+b as f:
-    c = f + 4
-    c = c + d
-    k = f + e
-"""
-tree = ast.parse(code).body[0]
-inputs, errors = get_input_variables_for(annotate(tree)); inputs
-assert inputs == {'a', 'b', 'd', 'e'}
-outputs, errors = get_output_variables_for(annotate(tree)); outputs
-assert outputs == {'c', 'k', 'f'}
-
-
-d, e = 5, 6
-with open('package.json', 'r') as f:
-    # Get the first line:
-    k = f.readline()
-    c = d+e
-
-k
-f
-
-
-
-
-
-sample_python_code = """
-import pandas as pd
-
-credentials_redshift = get_credentials_redshift_marketingdb()
-engine_redshift = connect_to_redshift(credentials_redshift)
-
-query = \"""
-select * from delta_old_job full outer join delta_new_job on delta_old_job.ad_id = delta_new_job.ad_id ; 
-\"""
-
-df_delta_ven10 = pd.read_sql(query, engine_redshift)
-some_more_query = query+1
-
-# Save locally as parquet:
-# % [
-df_delta_ven10.to_csv('df_delta_ven10.parquet')
-len(df_delta_ven10)
-a, b = 5, 6
-print(a, b)
-# % ]
-
-def set_diff_stats(**kwargs):
-    assert len(kwargs) == 2, 'set_diff_stats() takes exactly 2 arguments'
-    (name_set1, name_set2), (set1, set2) = kwargs.keys(), kwargs.values()
-    set1, set2 = set(set1), set(set2)
-    print(f'len({name_set1})={len(set1)}', f'len({name_set2})={len(set2)}')
-    print(f'len({name_set1}.intersection({name_set2}))={len(set1.intersection(set2))}')
-    print(f'len({name_set1}.difference({name_set2}))={len(set1.difference(set2))}')
-    print(f'len({name_set2}.difference({name_set1}))={len(set2.difference(set1))}')
-
-    print(f'Fraction of {name_set1} that is in {name_set2}:', len(set1.intersection(set2)) / len(set1))
-    print(f'Fraction of {name_set2} that is in {name_set1}:', len(set2.intersection(set1)) / len(set2))
-
-    # print(f'Elements that are in {name_set1} but not in {name_set2}:', set1.difference(set2))
-    # print(f'Elements that are in {name_set2} but not in {name_set1}:', set2.difference(set1))
-
-
-set_diff_stats(df_delta_ven10=df_delta_ven10, user_ads_data_only_PUBLIC=user_ads_data_only_PUBLIC)
-
-cdc = pd.DataFrame('uhhhhnnhhhhh')
-for c in cdc:
-    print(c)
-
-if 3<5:
-    print('yes')
-else:
-    a=75
-    print('no')
-
-d = some_more_query
-d +=2; d +=3
-d +=4
-d +=5
-d +=6
-"""
+# d = some_more_query
+# d +=2; d +=3
+# d +=4
+# d +=5
+# d +=6
+# """
 
 # DONE (omg): a bug in nested classes
 # TODO: solve the fact that in "for a in v", a is Store (which is Actually ok), BUT v is Load, so it will NOT count as output: SEE NEXT POINT
@@ -128,7 +79,7 @@ d +=6
 
 
 
-[[6, 6, "outdated", "", "import boto3", "6-6: import boto3"], [55, 55, "outdated", "", "import pyarrow", "55-55: import pyarrow"], [59, 70, "outdated", "", "def get_filesystem(profile_name):\n    session = boto3.Session(profile_name=profile_name)  # )\n    credentials = session.get_credentials()  # Get credentials out of session:\n    # Read with credentials:\n    filesystem = pyarrow.fs.S3FileSystem(\n        access_key=credentials.access_key,\n        secret_key=credentials.secret_key,\n     …redentials:\n    filesystem = pyarrow.fs.S3FileSystem(\n        access_key=credentials.access_key,\n        secret_key=credentials.secret_key,\n        session_token=credentials.token,\n        region=\'eu-west-1\',\n        # role_arn=\'arn:aws:iam::939571286166:role/aws_iam_role-unicron_readonly_dev_access\'\n    )\n    return filesystem"], [73, 73, "outdated", "current", "filesystem_pro = get_filesystem(\"sbt-it-pro:power\")", "73-73: filesystem_pro = get_filesystem(\"sbt-it-pro:power\")"]]
+# [[6, 6, "outdated", "", "import boto3", "6-6: import boto3"], [55, 55, "outdated", "", "import pyarrow", "55-55: import pyarrow"], [59, 70, "outdated", "", "def get_filesystem(profile_name):\n    session = boto3.Session(profile_name=profile_name)  # )\n    credentials = session.get_credentials()  # Get credentials out of session:\n    # Read with credentials:\n    filesystem = pyarrow.fs.S3FileSystem(\n        access_key=credentials.access_key,\n        secret_key=credentials.secret_key,\n     …redentials:\n    filesystem = pyarrow.fs.S3FileSystem(\n        access_key=credentials.access_key,\n        secret_key=credentials.secret_key,\n        session_token=credentials.token,\n        region=\'eu-west-1\',\n        # role_arn=\'arn:aws:iam::939571286166:role/aws_iam_role-unicron_readonly_dev_access\'\n    )\n    return filesystem"], [73, 73, "outdated", "current", "filesystem_pro = get_filesystem(\"sbt-it-pro:power\")", "73-73: filesystem_pro = get_filesystem(\"sbt-it-pro:power\")"]]
 
 
         
@@ -195,6 +146,19 @@ def test_dag_builder():
 # %load_ext autoreload
 # %autoreload 2
 
+
+from src.reactive_python_engine import reactive_python_dag_builder_utils__
+
+# import "time":
+import time
+import ast
+
+
+draw_dag = reactive_python_dag_builder_utils__.draw_dag
+update_staleness_info_in_new_dag = reactive_python_dag_builder_utils__.update_staleness_info_in_new_dag
+get_input_variables_for = reactive_python_dag_builder_utils__.get_input_variables_for
+get_output_variables_for = reactive_python_dag_builder_utils__.get_output_variables_for
+annotate = reactive_python_dag_builder_utils__.annotate
 
 
 code = """
@@ -1076,29 +1040,82 @@ outputs, errors = get_output_variables_for(annotate(tree)); outputs
 assert outputs == {'yy', 'kk'}
 
 
-# code = """
-# for k, d[k] in range(v):
-#     pass
-# """
-# print(ast.dump(tree, indent=4))
-# tree = ast.parse(code).body[0]
-# inputs, errors = get_input_variables_for(annotate(tree)); inputs
-# assert inputs == {'range', 'v', 'd'}
-# outputs, errors = get_output_variables_for(annotate(tree)); outputs
-# assert outputs == {'f'}
-# TODO this is wrong !!!
+code = """
+for x in range(1,3): 
+    y = x+c
+"""
+tree = ast.parse(code).body[0]
+inputs, errors = get_input_variables_for(annotate(tree)); inputs
+assert inputs == {'c', 'range'}
+outputs, errors = get_output_variables_for(annotate(tree)); outputs
+assert outputs == {'x', 'y'}
 
-# code = """
-# for x in range(1,3):
-#     y = x+4
-#     w.asset = f(x)
-#     z = w.asset.value
-# """
-# tree = ast.parse(code).body[0]
-# inputs, errors = get_input_variables_for(annotate(tree)); inputs
-# assert inputs == {'f', 'range', 'w'}
-# outputs, errors = get_output_variables_for(annotate(tree)); outputs
-# assert outputs == {'w', 'x', 'y', 'z'}
+
+code = """
+for x in range(1,3):
+    y = x+4
+    w.asset = f(x)
+    z = w.asset.value
+"""
+tree = ast.parse(code).body[0]
+inputs, errors = get_input_variables_for(annotate(tree)); inputs
+assert inputs == {'f', 'range', 'w'}
+outputs, errors = get_output_variables_for(annotate(tree)); outputs
+assert outputs == {'w', 'x', 'y', 'z'}
+
+
+code = """
+for x in range(1,3):
+    def ff(y):
+        return y + x
+    z = x.asset.value
+"""
+tree = ast.parse(code).body[0]
+inputs, errors = get_input_variables_for(annotate(tree)); inputs
+assert inputs == {'range'}
+outputs, errors = get_output_variables_for(annotate(tree)); outputs
+assert outputs == {'x', 'ff', 'z'}
+
+code = """
+for x in range(1,3):
+    def ff(y):
+        return y + x
+    z.asset = x.asset.value
+"""
+tree = ast.parse(code).body[0]
+inputs, errors = get_input_variables_for(annotate(tree)); inputs
+assert inputs == {'range', 'z'}
+outputs, errors = get_output_variables_for(annotate(tree)); outputs
+assert outputs == {'x', 'ff', 'z'}
+
+code = """
+for x in y:
+    for z in x:
+        z
+        a = 3
+"""
+tree = ast.parse(code).body[0]
+inputs, errors = get_input_variables_for(annotate(tree)); inputs
+assert inputs == {'y'}
+outputs, errors = get_output_variables_for(annotate(tree)); outputs
+assert outputs == {'a', 'x', 'z'}
+
+
+
+code = """
+with x as y:
+    with z as a:
+        k = a + c
+        f += y
+"""
+tree = ast.parse(code).body[0]
+inputs, errors = get_input_variables_for(annotate(tree)); inputs
+assert inputs == {'c', 'f', 'x', 'z'}
+outputs, errors = get_output_variables_for(annotate(tree)); outputs
+assert outputs == {'a', 'f', 'k', 'y'}
+
+
+
 
 
 
@@ -1107,3 +1124,15 @@ assert outputs == {'yy', 'kk'}
 print(time.time() - current_time)
 
 
+x = 567
+
+
+f = lambda x: {'value': x+1}
+w = {'asset': 3}
+
+for x in range(1,3):
+    y = x+4
+    w['asset'] = f(x)
+    z = w['asset']['value']
+
+x
