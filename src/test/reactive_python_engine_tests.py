@@ -1144,35 +1144,144 @@ x
 
 
 
+#########################################  ANCESTOR WITH PRUNING:
+
+from networkx import DiGraph, topological_sort, find_cycle
+from networkx import *
+
+
+
+from typing import Callable
+from collections import deque
+
+def generic_bfs_edges_with_pruning(G, source, neighbors, pruning_condition: Callable):
+    visited = {source}
+    queue = deque([(source, 0, neighbors(source))])
+    while queue:
+        parent, depth_now, children = queue[0]
+        try:
+            child = next(children)
+            if child not in visited and pruning_condition(G.nodes[child]):
+                yield parent, child
+                visited.add(child)
+                queue.append((child, 0, neighbors(child)))
+        except StopIteration:
+            queue.popleft()
+
+
+def directed_ancestors_with_pruning(G, source, pruning_condition):
+    return {child for parent, child in generic_bfs_edges_with_pruning(G, source, G.predecessors, pruning_condition=pruning_condition)}
+
+def directed_descendants_with_pruning(G, source, pruning_condition):
+    return {child for parent, child in generic_bfs_edges_with_pruning(G, source, G.neighbors, pruning_condition=pruning_condition)}
+
+
+
+# sample graph:
+
+dirGraph = DiGraph()
+dirGraph.add_edges_from([(1, 2), (1, 3), (1, 4), (2, 5), (3, 5), (4, 6),])
+# Add a "STALE" label to each node:
+for node in dirGraph.nodes:
+    dirGraph.nodes[node]['stale'] = True
+
+pruning_condition_ = lambda node: node['stale']
+
+# Uni test descendants_with_pruning:
+
+import copy 
+g1 = copy.deepcopy(dirGraph)
+
+g1.nodes[3]['stale'] = False
+
+directed_descendants_with_pruning(g1, 1, pruning_condition_)
+assert directed_descendants_with_pruning(g1, 1, pruning_condition_) == {2, 4, 5, 6}
+
+
+g2 = copy.deepcopy(dirGraph)
+g2.nodes[4]['stale'] = False
+directed_descendants_with_pruning(g2, 1, pruning_condition_)
+assert directed_descendants_with_pruning(g2, 1, pruning_condition_) == {2, 3, 5}
+
 
 
 ######################################  AN EXECUTION EXAMPLE:
 
+def pr(ranges):
+    print("\n".join([r[4] + ": " + r[2] for r in json.loads(ranges)] if ranges else []))
 
-
-
+import json
 
 code = """
-x = 1  # line 1
+counter1 = 1  # line 1
+counter1 += 2
+counter1
 
-print(x)
+counter3 = 3
+counter3 += 4
+print(counter3)
 """
 
 reactive_python_dag_builder_utils__ = ReactivePythonDagBuilderUtils__()
 
-reactive_python_dag_builder_utils__.update_dag_and_get_ranges(code=code, include_code=True)
+ranges = reactive_python_dag_builder_utils__.update_dag_and_get_ranges(code=code, include_code=True)
+pr(ranges)
 
-ranges = reactive_python_dag_builder_utils__.ask_for_ranges_to_compute(code, current_line = 3, get_upstream=True, get_downstream=True, stale_only=True); ranges
-
-hashes = [r[5] for r in json.loads(ranges)] if ranges else []
-
-reactive_python_dag_builder_utils__.set_locked_range_as_synced(hashes[0])
-reactive_python_dag_builder_utils__.set_locked_range_as_synced(hashes[1])
-
-reactive_python_dag_builder_utils__.unlock()
-
-reactive_python_dag_builder_utils__.update_dag_and_get_ranges(code=code, current_line=3)
-reactive_python_dag_builder_utils__.update_dag_and_get_ranges(code=code, current_line=None)
-
+# RUN LINE 3:
 ranges = reactive_python_dag_builder_utils__.ask_for_ranges_to_compute(code, current_line = 3, get_upstream=True, get_downstream=False, stale_only=True); ranges
+pr(ranges)
+for h in ([r[5] for r in json.loads(ranges)] if ranges else []):
+    reactive_python_dag_builder_utils__.set_locked_range_as_synced(h)
+reactive_python_dag_builder_utils__.unlock()
+ranges = reactive_python_dag_builder_utils__.update_dag_and_get_ranges(code=None, current_line=None, include_code=True)
+pr(ranges)
 
+# RUN LINE 7:
+ranges = reactive_python_dag_builder_utils__.ask_for_ranges_to_compute(code, current_line = 7, get_upstream=True, get_downstream=False, stale_only=True); ranges
+pr(ranges)
+for h in ([r[5] for r in json.loads(ranges)] if ranges else []):
+    reactive_python_dag_builder_utils__.set_locked_range_as_synced(h)
+reactive_python_dag_builder_utils__.unlock()
+ranges = reactive_python_dag_builder_utils__.update_dag_and_get_ranges(code=None, current_line=None, include_code=True, stale_only=False)
+pr(ranges)
+
+
+#### Now send a New text:
+code = """
+counter1 = 1  # line 1
+counter1 += 2
+counter1
+
+counter3 = 333
+counter3 += 4
+print(counter3)
+"""
+ranges = reactive_python_dag_builder_utils__.update_dag_and_get_ranges(code=code, include_code=True, stale_only=False)
+pr(ranges)
+
+# RUN LINE 7 AGAIN:
+ranges = reactive_python_dag_builder_utils__.ask_for_ranges_to_compute(code, current_line = 7, get_upstream=True, get_downstream=False, stale_only=True); ranges
+pr(ranges)
+for h in ([r[5] for r in json.loads(ranges)] if ranges else []):
+    reactive_python_dag_builder_utils__.set_locked_range_as_synced(h)
+reactive_python_dag_builder_utils__.unlock()
+ranges = reactive_python_dag_builder_utils__.update_dag_and_get_ranges(code=None, current_line=None, include_code=True, stale_only=False)
+pr(ranges)
+
+ranges = reactive_python_dag_builder_utils__.update_dag_and_get_ranges(code=code, current_line=None, include_code=True, stale_only=False)
+pr(ranges)
+
+
+
+
+
+
+# #### Run "counter2" again:
+# ranges = reactive_python_dag_builder_utils__.ask_for_ranges_to_compute(code, current_line = 4, get_upstream=True, get_downstream=False, stale_only=True); ranges
+# print("\n".join([r[4] for r in json.loads(ranges)]))
+# hashes = [r[5] for r in json.loads(ranges)] if ranges else []
+# reactive_python_dag_builder_utils__.set_locked_range_as_synced(hashes[0])
+# reactive_python_dag_builder_utils__.unlock()
+
+# #### Draw DAG:
+# reactive_python_dag_builder_utils__.draw_dag(reactive_python_dag_builder_utils__.current_dag)
