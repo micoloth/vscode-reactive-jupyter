@@ -61,7 +61,8 @@ const textDecoder = new TextDecoder();
 
 async function* executeCodeStreamInKernel(code: string, kernel: Kernel, output_channel: OutputChannel | null): AsyncGenerator<string | ExecutionError, void, unknown> {
     /*
-    Currently, it ALWAYS logs a line (for the user), and it returns the result if it is NOT AN ERROR, else Undefined. 
+    Currently, it ALWAYS logs a line (for the user) if output_channel is defined, 
+    and it returns the result if it is NOT AN ERROR, else Undefined. 
     If you need Debugging traces, use console.log(). (currently it logs errors)
     */
 
@@ -110,7 +111,7 @@ async function executeCodeInKernel(code: string, kernel: Kernel, output_channel:
 enum IWExecutionResult {
     Succeeded = 'Succeeded',
     Failed = 'Failed',
-    NotebookClodsed = 'NotebookClodsed'
+    NotebookClosed = 'NotebookClosed'
 }
 
 async function executeCodeInInteractiveWindow(
@@ -142,14 +143,14 @@ async function executeCodeInInteractiveWindow(
 
     if (!cell) {
         window.showErrorMessage('Reactive Jupyter: Failed to execute the code in the Interactive Window: No matching cell was identified');
-        return IWExecutionResult.NotebookClodsed;
+        return IWExecutionResult.NotebookClosed;
     }
 
     let cell_state = CellState.Undefined;
     await new Promise((resolve) => setTimeout(resolve, 250));
     for (let i = 0; i > -1; i++) {
         if (!notebook || notebook.isClosed || cell.notebook.isClosed) {
-            return IWExecutionResult.NotebookClodsed;
+            return IWExecutionResult.NotebookClosed;
         }
         cell_state = getCellState(cell);
         if (cell_state === CellState.Success) { 
@@ -244,7 +245,7 @@ async function safeExecuteCodeInInteractiveWindow(
     let [notebook, kernel] = notebookAndKernel;
     updateKernelState(globals, editor, KernelState.explicit_execution_started);
     const result = await executeCodeInInteractiveWindow(command, notebook, output);
-    if (result == IWExecutionResult.NotebookClodsed) {
+    if (result == IWExecutionResult.NotebookClosed) {
         window.showErrorMessage("Reactive Jupyter: Lost Connection to this editor's Notebook. Please initialize the extension with the command 'Initialize Reactive Jupyter' or the CodeLens at the top");
         updateKernelState(globals, editor, KernelState.initializable_messaged);
     }
@@ -367,16 +368,16 @@ function getBestMatchingCell(cell: NotebookCell, nb: NotebookDocument, last_idx:
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-function getState<STATE>(globals: Map<string, string>, key: string): STATE | boolean {
-    return (globals.get(key) as STATE) || false;
+function getState<STATES>(globals: Map<string, string>, key: string): STATES | boolean {
+    return (globals.get(key) as STATES) || false;
 }
 
-function updateState<STATE>(globals: Map<string, string>, key: string, newState_: string, stateTransitions: Map<STATE, STATE[]>, initialStates: STATE[] = []) {
-    let newState = newState_ as STATE;
+function updateState<STATES>(globals: Map<string, string>, key: string, newState_: string, stateTransitions: Map<STATES, STATES[]>, initialStates: STATES[] = []) {
+    let newState = newState_ as STATES;
     if (!newState) {
         throw new Error('Invalid state: ' + newState);
     }
-    let currentState = (globals.get(key) as STATE) || false;
+    let currentState = (globals.get(key) as STATES) || false;
     if (!currentState) {
         if (initialStates.includes(newState)) {
             globals.set(key, newState as string); // Cast newState to string
@@ -387,7 +388,7 @@ function updateState<STATE>(globals: Map<string, string>, key: string, newState_
             throw new Error('Invalid initial state: ' + newState + ' , please initialize your editor first');
         }
     }
-    let acceptedTransitions = stateTransitions.get(currentState as STATE);
+    let acceptedTransitions = stateTransitions.get(currentState as STATES);
     if (acceptedTransitions && acceptedTransitions.includes(newState)) {
         globals.set(key, newState as string);
     }
@@ -442,7 +443,7 @@ function getKernelState(globals: Map<string, string>, editor: TextEditor): Kerne
 
 
 function checkSettings(globals: Map<string, string>, editor: TextEditor,) {
-    // After this function, you are: in settings_not_ok if they are not ok, or in THE SAME PREVIOUS STATE if they are, except if you were in settings_not_ok, in which case you are in initializable
+    // After this function, you are: in settings_not_ok if they are not ok, or in THE SAME PREVIOUS STATES if they are, except if you were in settings_not_ok, in which case you are in initializable
     // Obviously, returns True if settings are ok, else False
 
     const creationMode = vscode.workspace.getConfiguration('jupyter').get<string>('interactiveWindow.creationMode');
