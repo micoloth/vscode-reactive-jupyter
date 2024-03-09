@@ -77,6 +77,11 @@
 
 
 
+update_staleness_info_in_new_dag = reactive_python_dag_builder_utils__.update_staleness_info_in_new_dag
+get_input_variables_for = reactive_python_dag_builder_utils__.get_input_variables_for
+get_output_variables_for = reactive_python_dag_builder_utils__.get_output_variables_for
+annotate = reactive_python_dag_builder_utils__.annotate
+
 
 
 # [[6, 6, "outdated", "", "import boto3", "6-6: import boto3"], [55, 55, "outdated", "", "import pyarrow", "55-55: import pyarrow"], [59, 70, "outdated", "", "def get_filesystem(profile_name):\n    session = boto3.Session(profile_name=profile_name)  # )\n    credentials = session.get_credentials()  # Get credentials out of session:\n    # Read with credentials:\n    filesystem = pyarrow.fs.S3FileSystem(\n        access_key=credentials.access_key,\n        secret_key=credentials.secret_key,\n     …redentials:\n    filesystem = pyarrow.fs.S3FileSystem(\n        access_key=credentials.access_key,\n        secret_key=credentials.secret_key,\n        session_token=credentials.token,\n        region=\'eu-west-1\',\n        # role_arn=\'arn:aws:iam::939571286166:role/aws_iam_role-unicron_readonly_dev_access\'\n    )\n    return filesystem"], [73, 73, "outdated", "current", "filesystem_pro = get_filesystem(\"sbt-it-pro:power\")", "73-73: filesystem_pro = get_filesystem(\"sbt-it-pro:power\")"]]
@@ -1136,3 +1141,38 @@ for x in range(1,3):
     z = w['asset']['value']
 
 x
+
+
+
+
+
+######################################  AN EXECUTION EXAMPLE:
+
+
+
+
+
+code = """
+x = 1  # line 1
+
+print(x)
+"""
+
+reactive_python_dag_builder_utils__ = ReactivePythonDagBuilderUtils__()
+
+reactive_python_dag_builder_utils__.update_dag_and_get_ranges(code=code, include_code=True)
+
+ranges = reactive_python_dag_builder_utils__.ask_for_ranges_to_compute(code, current_line = 3, get_upstream=True, get_downstream=True, stale_only=True); ranges
+
+hashes = [r[5] for r in json.loads(ranges)] if ranges else []
+
+reactive_python_dag_builder_utils__.set_locked_range_as_synced(hashes[0])
+reactive_python_dag_builder_utils__.set_locked_range_as_synced(hashes[1])
+
+reactive_python_dag_builder_utils__.unlock()
+
+reactive_python_dag_builder_utils__.update_dag_and_get_ranges(code=code, current_line=3)
+reactive_python_dag_builder_utils__.update_dag_and_get_ranges(code=code, current_line=None)
+
+ranges = reactive_python_dag_builder_utils__.ask_for_ranges_to_compute(code, current_line = 3, get_upstream=True, get_downstream=False, stale_only=True); ranges
+

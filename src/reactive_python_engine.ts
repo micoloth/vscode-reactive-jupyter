@@ -589,7 +589,8 @@ class ReactivePythonDagBuilderUtils__():
             errored_input_vars: Set[str]  # Represents the variables that are defined in this node (either via assignment or function definition)  and can be used later
             errored_output_vars: Set[str]  # Represents the variables that are defined in this node (either via assignment or function definition)  and can be used later
             stale: bool = False
-            depends_on_stale_nodes_not_selected: bool = False  # Helper var used in a specific function to do a specific thing, it's just handy to have it here directly
+            needstobestale: bool = False
+            depends_on_stale_nodes_not_selected: bool = False  # Helper var used in a specific function to do a specific thing, it's just handy to have it here directly, but ignore for now
         
         def node_repr_hash(node):
             repr = f"{node['lineno']}-{node['end_lineno']}: {node['text'].strip()}"
@@ -770,7 +771,7 @@ class ReactivePythonDagBuilderUtils__():
                         graph.add_edge(edge[0], edge[1], vars=[edge[2]])
 
             # Add a single node "_START_" that has an edge pointing to ALL THE NODES THAT HAVE NO PARENTS
-            graph.add_node("_START_", stale=False, text="_START_")
+            graph.add_node("_START_", stale=False, needstobestale=False, text="_START_")
             for i, node in enumerate(dag_nodes):
                 if len(list(graph.predecessors(i))) == 0:
                     graph.add_edge("_START_", i, vars=[])
@@ -798,9 +799,19 @@ class ReactivePythonDagBuilderUtils__():
 
             Start from the "_START_" node of the new dag, and for each node, check if it is in the old_dag (Compare the "ast_tree" dataclasses.field by equality).
 
-            Each node in the new_dag is FRESH (not stale) if and only if: 
-                - all its parents in the new_dag are fresh
-                - it has a corresponding node in the old_dag, and that node is not stale
+            Each node in the new_dag NEEDSTOBESTALE if and only if: 
+                - ANY of its parents in the new_dag NEEDSTOBESTALE, OR
+                - it Doesn't have a corresponding node in the old_dag (ie it's new/ has been changed).
+
+            Subsequently, 
+            Each noed is STALE if and only if:
+                - it NEEDSTOBESTALE, OR
+                - ANY of its parents in the new_dag NEEDSTOBESTALE, OR
+                - it Doesn't have a corresponding node in the old_dag (ie it's new/ has been changed).
+            Otherwise, it should retain its state.
+
+            This double logic is to handle this case:
+                - If a node is STALE and one of its childer in FRESH (not stale), but None of them NEEDSTOBESTALE, the the Children SHOULD remain Fresh...
 
             Args:
                 old_dag (_type_): The old dag
@@ -815,14 +826,18 @@ class ReactivePythonDagBuilderUtils__():
                     new_node_to_old['_START_'] = '_START_'; continue
                 parents = list(new_dag.predecessors(new_node))
                 
-                # If any of the parents is stale, it's stale:
-                if any(new_dag.nodes[x]['stale'] for x in parents):
-                    new_dag.nodes[new_node]['stale'] = True; continue
+                # If any of the parents needstobestale, then needstobestale:
+                if any(new_dag.nodes[x]['needstobestale'] for x in parents):
+                    new_dag.nodes[new_node]['needstobestale'] = True
+                    new_dag.nodes[new_node]['stale'] = True
+                    continue
                 
                 # For all the parents, get the corresponding nodes in the old_dag: if any don't exist, it's stale:
                 parents_in_old_dag = [new_node_to_old.get(parent) for parent in parents]
                 if any(x is None for x in parents_in_old_dag):
-                    new_dag.nodes[new_node]['stale'] = True; continue
+                    new_dag.nodes[new_node]['needstobestale'] = True
+                    new_dag.nodes[new_node]['stale'] = True
+                    continue
 
                 # Among all the nodes in old_graph that are Successors of All nodes in parents_in_old_dag,
                 # Find the one that is the same as the new_node: 
@@ -833,8 +848,13 @@ class ReactivePythonDagBuilderUtils__():
                         break
                 
                 # If there is no matching node in the old_dag, or the matching node is stale, it's stale:
-                if new_node_to_old.get(new_node) is None or old_dag.nodes[new_node_to_old[new_node]]['stale']:
-                    new_dag.nodes[new_node]['stale'] = True; continue
+                if new_node_to_old.get(new_node) is None or old_dag.nodes[new_node_to_old[new_node]]['needstobestale']:
+                    new_dag.nodes[new_node]['needstobestale'] = True; 
+                    new_dag.nodes[new_node]['stale'] = True; 
+                    continue
+                else:
+                    # RETAIN THE PREVIOUS STATE:
+                    new_dag.nodes[new_node]['stale'] = old_dag.nodes[new_node_to_old[new_node]]['stale']
 
             # Additional step: For all variables that are outputted by a stale node, mark all the nodes that use that variable as stale FROM THE BEGINNING:
             # If the assignements always use a new name, as it should be in a functional setting, this is not necessary.
@@ -2376,13 +2396,6 @@ class ReactivePythonDagBuilderUtils__():
 
 reactive_python_dag_builder_utils__ = ReactivePythonDagBuilderUtils__()
 
-
-
-
-update_staleness_info_in_new_dag = reactive_python_dag_builder_utils__.update_staleness_info_in_new_dag
-get_input_variables_for = reactive_python_dag_builder_utils__.get_input_variables_for
-get_output_variables_for = reactive_python_dag_builder_utils__.get_output_variables_for
-annotate = reactive_python_dag_builder_utils__.annotate
 
 
 `;
