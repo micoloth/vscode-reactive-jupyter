@@ -115,6 +115,7 @@ class ExposedVariables():
     nonlocal_variables: Set[str] = dataclasses.field(default_factory=set)
     global_variables: Set[str] = dataclasses.field(default_factory=set)
     introduced_variables: Set[str] = dataclasses.field(default_factory=set) # These are the params in a function, or the target n a For or a With or exception, or even the variables in a class
+    inputs_variables_in_function_in_class: Set[str] = dataclasses.field(default_factory=set)  # These are the variables that are used by the body of a function that is inside a class
     # it's not empty only when you are visiting one of these things.
 
     # # Make this hashable, using all the fields:
@@ -132,9 +133,10 @@ def h_merge(*exposed_variables: ExposedVariables):
         result.nonlocal_variables |= ev.nonlocal_variables
         result.global_variables |= ev.global_variables
         result.introduced_variables |= ev.introduced_variables
+        result.inputs_variables_in_function_in_class |= ev.inputs_variables_in_function_in_class
     return result
 
-def v_merge(*exposed_variables: ExposedVariables):
+def v_merge(*exposed_variables: ExposedVariables, _class=False):
     """Merge vertically, or in Sequence: The order matters, here!"""
     result = ExposedVariables()
     for ev in exposed_variables:
@@ -144,6 +146,10 @@ def v_merge(*exposed_variables: ExposedVariables):
         result.nonlocal_variables |= ev.nonlocal_variables
         result.global_variables |= ev.global_variables
         result.introduced_variables |= ev.introduced_variables
+        if not _class:
+            result.inputs_variables_in_function_in_class |= (ev.inputs_variables_in_function_in_class - result.assigned_variables - result.output_variables)
+        else:
+            result.inputs_variables_in_function_in_class |= ev.inputs_variables_in_function_in_class
     return result
 
 
@@ -160,7 +166,7 @@ def v_merge(*exposed_variables: ExposedVariables):
 ############################################################################################################################
 
 class TempScopeVisitor(ast.NodeVisitor):
-    def __init__(self, variables: ExposedVariables, class_binds_near, is_lhs_target=False, is_also_input_of_aug_assign=False, is_introducing_variables=False):
+    def __init__(self, variables: ExposedVariables, class_binds_near, is_lhs_target=False, is_also_input_of_aug_assign=False, is_introducing_variables=False, _class=False):
         """ Not how it receives 'variables' by REFERENCE !! """
         # self.node: ast.AST = node
         # self.parent: "TempScope" = parent
@@ -169,6 +175,7 @@ class TempScopeVisitor(ast.NodeVisitor):
         self.is_also_input_of_aug_assign = is_also_input_of_aug_assign
         self.class_binds_near = class_binds_near
         self.is_introducing_variables = is_introducing_variables
+        self._class = _class
 
     # NOTE NamedExpr(target, value): HERE we go. WAIT tho.. This is ALREADY FINE cuz the target is a Store? isnt this right?
     # NOTE Attribute(value, attr, ctx) where attr is a BARE STR and ctx like in name: SOULD i act on this?? K, probably not
@@ -180,7 +187,9 @@ class TempScopeVisitor(ast.NodeVisitor):
         is_assignment = type(name_node.ctx) is ast.Store or type(name_node.ctx) is ast.Del
         # is_introduction = # TODO
 
-        if is_input:
+        if is_input and not name_node.id in self.variables.output_variables:  
+            # TODO: This is an attempt to fix the problem of "k:=x" within an expression.
+            # it's NOT OBVIOUS that it doesn't break anything !!
             self.variables.input_variables.add(name_node.id)
         if is_output:
             self.variables.output_variables.add(name_node.id)
@@ -189,38 +198,43 @@ class TempScopeVisitor(ast.NodeVisitor):
 
     def visit_Subscript(self, subscr_node):  # HERE we go!
         if type(subscr_node.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near)
+            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near, _class=self._class)
             lhs_visitor.visit(subscr_node.value)
         elif type(subscr_node.ctx) is ast.Load:
             self.visit(subscr_node.value)
         else:
             raise RuntimeError("Unsupported node type: {name_node}".format(name_node=subscr_node))
-        lhs_load_visitor = TempScopeVisitor(self.variables, is_lhs_target=False, is_also_input_of_aug_assign=False, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near)
+        lhs_load_visitor = TempScopeVisitor(self.variables, is_lhs_target=False, is_also_input_of_aug_assign=False, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near, _class=self._class)
         lhs_load_visitor.visit(subscr_node.slice)
 
     def visit_Attribute(self, attribute):  # HERE we go!
         if type(attribute.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near)
+            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near, _class=self._class)
             lhs_visitor.visit(attribute.value)
         elif type(attribute.ctx) is ast.Load:
             self.visit(attribute.value)
         else:
             raise RuntimeError("Unsupported node type: {name_node}".format(name_node=attribute))
+        
+    def visit_Assign(self, assign_node):  # HERE we go!
+        value = get_vars_for_nodes(self, assign_node.value)
+        targets = get_vars_for_nodes(self, *assign_node.targets)
+        self.variables = v_merge(self.variables, *value, h_merge(*targets), _class=self._class)
 
     def visit_AugAssign(self, augassign_node):  # HERE we go!
         if type(augassign_node.target.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=True, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near)
+            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=True, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near, _class=self._class)
             lhs_visitor.visit(augassign_node.target)
         elif type(augassign_node.target.ctx) is ast.Load:
             self.visit(augassign_node.target)
         else:
             raise RuntimeError("Unsupported node type: {name_node}".format(name_node=augassign_node))
-        value_visitor = TempScopeVisitor(self.variables, is_lhs_target=False, is_also_input_of_aug_assign=False, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near)
+        value_visitor = TempScopeVisitor(self.variables, is_lhs_target=False, is_also_input_of_aug_assign=False, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near, _class=self._class)
         value_visitor.visit(augassign_node.value)
 
     def visit_List(self, list_node: ast.List):
         if type(list_node.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near)
+            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near, _class=self._class)
             visit_all(lhs_visitor, list_node.elts)
         elif type(list_node.ctx) is ast.Load:
             super().generic_visit(list_node)
@@ -229,7 +243,7 @@ class TempScopeVisitor(ast.NodeVisitor):
 
     def visit_Tuple(self, tuple_node: ast.Tuple):
         if type(tuple_node.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near)
+            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near, _class=self._class)
             visit_all(lhs_visitor, tuple_node.elts)
         elif type(tuple_node.ctx) is ast.Load:
             super().generic_visit(tuple_node)
@@ -247,10 +261,10 @@ class TempScopeVisitor(ast.NodeVisitor):
         
         # 1. Visit the type comment and the decorators
         if type(func_node) != ast.Lambda:
-            visit_all(self, getattr(func_node, 'type_comment', None), getattr(func_node, 'decorator_list', None), getattr(func_node, 'returns', None))
+            visit_all(self, getattr(func_node, 'type_comment', None), func_node.decorator_list, func_node.returns)
 
         # 2. Visit the arguments
-        argument_visitor = TempScopeVisitor(ExposedVariables(), is_lhs_target=False, is_also_input_of_aug_assign=False, is_introducing_variables=True, class_binds_near=self.class_binds_near)
+        argument_visitor = TempScopeVisitor(ExposedVariables(), is_lhs_target=False, is_also_input_of_aug_assign=False, is_introducing_variables=True, class_binds_near=self.class_binds_near, _class=self._class)
         ArgumentsVisitor(self, argument_visitor).visit(func_node.args)
         self.variables.input_variables |= argument_visitor.variables.input_variables
         self.variables.output_variables |= argument_visitor.variables.output_variables
@@ -258,17 +272,28 @@ class TempScopeVisitor(ast.NodeVisitor):
 
         # 3. Visit the body
         if type(func_node.body) == list:
-            vars_stmts_body = get_vars_for_nodes(self, *func_node.body)  
+            vars_stmts_body = get_vars_for_nodes(self, *func_node.body, _class=False)  
         else: # This is the Lambda case
-            vars_stmts_body = get_vars_for_nodes(self, func_node.body)
-        vars_body = join_body_stmts_into_vars(*vars_stmts_body)
+            vars_stmts_body = get_vars_for_nodes(self, func_node.body, _class=False)
+        vars_body = join_body_stmts_into_vars(*vars_stmts_body, _class=False)
         
         # 4 get func name:
         func_name_set: Set[str] = set([func_name]) if func_name else set()
 
         # 4. Keep the body's Input but REMOVE the arguments' introduced variables. The only output is the function name, PLUS eventual outputs from Self
         # And also the name itself, for Recursive calls
-        self.variables.input_variables |= (vars_body.input_variables - argument_visitor.variables.introduced_variables - func_name_set) | vars_body.global_variables 
+
+        input_vars = (vars_body.input_variables - argument_visitor.variables.introduced_variables - func_name_set) | vars_body.global_variables
+        inputs_variables_in_function_in_class = (vars_body.inputs_variables_in_function_in_class - argument_visitor.variables.introduced_variables - func_name_set) | vars_body.global_variables
+
+        if self._class:
+            self.variables.inputs_variables_in_function_in_class |= input_vars
+        else:
+            self.variables.input_variables |= (input_vars - self.variables.assigned_variables - self.variables.output_variables)
+            self.variables.inputs_variables_in_function_in_class |= (inputs_variables_in_function_in_class - self.variables.assigned_variables - self.variables.output_variables)
+
+        # self.variables.inputs_variables_in_function_in_class |= (vars_body.inputs_variables_in_function_in_class - argument_visitor.variables.introduced_variables - func_name_set) | vars_body.global_variables
+        # The following whould Never happen if not self._class, but u never know:
         self.variables.output_variables |= func_name_set
         self.variables.assigned_variables |= func_name_set
         # self.variables.nonlocal_variables |= vars_body.nonlocal_variables
@@ -287,13 +312,20 @@ class TempScopeVisitor(ast.NodeVisitor):
     def _visit_comprehension(self, targets: List[ast.AST], comprehensions: List[ast.comprehension]):
 
         comprehension_scopes = []
+        all_vars_target = []
         for comprehension in comprehensions:
-            vars_target, vars_iter, vars_ifs = get_vars_for_nodes(self, comprehension.target, comprehension.iter, *comprehension.ifs)
-            comprehension_scopes.append(v_merge(vars_target, vars_iter, vars_ifs))
+            vars_target, vars_iter = get_vars_for_nodes(self, comprehension.target, comprehension.iter)
+            vars_ifs = get_vars_for_nodes(self, *comprehension.ifs)
+            comprehension_scopes.append(v_merge(vars_target, vars_iter, *vars_ifs))
+            all_vars_target.extend(vars_target.output_variables)
 
         targets_scopes = get_vars_for_nodes(self, *targets)
 
-        self.variables = v_merge(self.variables, *comprehension_scopes, h_merge(*targets_scopes))
+        vars_scope = v_merge(*comprehension_scopes, h_merge(*targets_scopes))
+        # Remove vars target from the output vars by hand:
+        vars_scope.output_variables -= set(all_vars_target)
+        vars_scope.assigned_variables -= set(all_vars_target)
+        self.variables = v_merge(self.variables, vars_scope)
 
     def visit_DictComp(self, comp_node: ast.DictComp):
         return self._visit_comprehension([comp_node.key, comp_node.value], comp_node.generators)
@@ -311,11 +343,11 @@ class TempScopeVisitor(ast.NodeVisitor):
         visit_all(self, getattr(node, 'type_comment', None))
         vars_iter, vars_target = get_vars_for_nodes(self, node.iter, node.target)
         vars_stmts_body = get_vars_for_nodes(self, node.target, node.iter, *node.body)
-        vars_body = join_body_stmts_into_vars(*vars_stmts_body)
+        vars_body = join_body_stmts_into_vars(*vars_stmts_body, _class=self._class)
         vars_stmts_orelse = get_vars_for_nodes(self, node.target, node.iter, *node.orelse)
-        vars_orelse = join_body_stmts_into_vars(*vars_stmts_orelse)
+        vars_orelse = join_body_stmts_into_vars(*vars_stmts_orelse, _class=self._class)
 
-        self.variables = h_merge(self.variables, v_merge(vars_iter, vars_target, h_merge(vars_body, vars_orelse)))
+        self.variables = v_merge(self.variables, v_merge(vars_iter, vars_target, h_merge(vars_body, vars_orelse), _class=self._class), _class=self._class)
 
     def visit_For(self, node: ast.For):
         self._visit_for(node)
@@ -327,15 +359,15 @@ class TempScopeVisitor(ast.NodeVisitor):
     def _visit_with(self, node: Union[ast.With, ast.AsyncWith]):
         visit_all(self, getattr(node, 'type_comment', None))
         vars_stmts_body = get_vars_for_nodes(self, *node.body)
-        vars_body = join_body_stmts_into_vars(*vars_stmts_body) # TO CHECK: Is this right?
+        vars_body = join_body_stmts_into_vars(*vars_stmts_body) # TO CHECK: Is this right, _class=self._class?
 
         items_vars = []
         for item in node.items:
             vars = get_vars_for_nodes(self, item.context_expr, *([item.optional_vars] if item.optional_vars else []))
             items_vars.append(v_merge(*vars))  # TO CHECK: Is this right?
 
-        items_vars = h_merge(*items_vars) # TO CHECK: Is this right?
-        self.variables = h_merge(self.variables, v_merge(items_vars, vars_body))  # TO CHECK: Is this right?
+        items_vars = v_merge(*items_vars, _class=self._class) # TO CHECK: Is this right?
+        self.variables = v_merge(self.variables, v_merge(items_vars, vars_body, _class=self._class), _class=self._class)  # TO CHECK: Is this right?
 
     def visit_With(self, node: ast.With):
         self._visit_with(node)
@@ -344,13 +376,13 @@ class TempScopeVisitor(ast.NodeVisitor):
         self._visit_with(node)
 
     def _visit_if_while(self, node: Union[ast.While, ast.If]):
-        vars_test = get_vars_for_nodes(self, node.test)
-        vars_stmts_body = get_vars_for_nodes(self, *node.body)
-        vars_body = join_body_stmts_into_vars(*vars_stmts_body)
-        vars_stmts_orelse = get_vars_for_nodes(self, *node.orelse)
-        vars_orelse = join_body_stmts_into_vars(*vars_stmts_orelse)
+        vars_test = get_vars_for_nodes(self, node.test, _class=self._class)
+        vars_stmts_body = get_vars_for_nodes(self, *node.body, _class=self._class)
+        vars_body = join_body_stmts_into_vars(*vars_stmts_body, _class=self._class)
+        vars_stmts_orelse = get_vars_for_nodes(self, *node.orelse, _class=self._class)
+        vars_orelse = join_body_stmts_into_vars(*vars_stmts_orelse, _class=self._class)
 
-        self.variables = h_merge(self.variables, v_merge(*vars_test, h_merge(vars_body, vars_orelse)))
+        self.variables = v_merge(self.variables, v_merge(*vars_test, h_merge(vars_body, vars_orelse), _class=self._class), _class=self._class)
         
     def visit_If(self, node: ast.If):
         self._visit_if_while(node)
@@ -359,24 +391,24 @@ class TempScopeVisitor(ast.NodeVisitor):
         self._visit_if_while(node)  
 
     def _visit_try(self, node: ast.Try):  # ast.TryStar
-        vars_stmts_body = get_vars_for_nodes(self, *node.body)
-        vars_body = join_body_stmts_into_vars(*vars_stmts_body)
-        vars_stmts_orelse = get_vars_for_nodes(self, *node.orelse)
-        vars_orelse = join_body_stmts_into_vars(*vars_stmts_orelse)
-        vars_stmts_finalbody = get_vars_for_nodes(self, *node.finalbody)
-        vars_finalbody = join_body_stmts_into_vars(*vars_stmts_finalbody)
+        vars_stmts_body = get_vars_for_nodes(self, *node.body, _class=self._class)
+        vars_body = join_body_stmts_into_vars(*vars_stmts_body, _class=self._class)
+        vars_stmts_orelse = get_vars_for_nodes(self, *node.orelse, _class=self._class)
+        vars_orelse = join_body_stmts_into_vars(*vars_stmts_orelse, _class=self._class)
+        vars_stmts_finalbody = get_vars_for_nodes(self, *node.finalbody, _class=self._class)
+        vars_finalbody = join_body_stmts_into_vars(*vars_stmts_finalbody, _class=self._class)
 
         all_vars_handlers = []
         for handler in node.handlers:
-            scope = TempScopeVisitor(ExposedVariables(), class_binds_near=self.class_binds_near, is_introducing_variables=self.is_introducing_variables, is_lhs_target=self.is_lhs_target, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign)
+            scope = TempScopeVisitor(ExposedVariables(), class_binds_near=self.class_binds_near, is_introducing_variables=self.is_introducing_variables, is_lhs_target=self.is_lhs_target, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, _class=self._class)
             visit_all(scope, handler.type, handler.name)
         
-            vars_stmts_handler = get_vars_for_nodes(scope, *handler.body)
-            vars_handler = join_body_stmts_into_vars(*vars_stmts_handler)
+            vars_stmts_handler = get_vars_for_nodes(scope, *handler.body, _class=self._class)
+            vars_handler = join_body_stmts_into_vars(*vars_stmts_handler, _class=self._class)
 
-            all_vars_handlers.append(v_merge(scope.variables, vars_handler))  # TO CHECK: Is this right?
+            all_vars_handlers.append(v_merge(scope.variables, vars_handler, _class=self._class))  # TO CHECK: Is this right?
 
-        self.variables = h_merge(self.variables, v_merge(vars_body, h_merge(*all_vars_handlers, vars_orelse), vars_finalbody))
+        self.variables = v_merge(self.variables, v_merge(vars_body, h_merge(*all_vars_handlers, vars_orelse), vars_finalbody, _class=self._class), _class=self._class)
         
     def visit_Try(self, node: ast.Try):
         self._visit_try(node)
@@ -384,12 +416,19 @@ class TempScopeVisitor(ast.NodeVisitor):
     def visit_TryStar(self, node):
         self._visit_try(node)
 
-    def visit_ClassDef(self, class_node):
-        self.all_tempscope_data[class_node] = AstNodeData(class_node.name, self.current_tempscope, False, True, True)
-        self.variables.assigned_variables.add(class_node.name)
-        _temp_scope = ClassTempScope(node=class_node, parent=self.current_tempscope, class_binds_near=self.class_binds_near)
-        subscope = TempScopeVisitor(_temp_scope, self.class_binds_near)
-        ast.NodeVisitor.generic_visit(subscope, class_node)
+    def visit_ClassDef(self, class_node: ast.ClassDef):
+        visit_all(self, class_node.bases, class_node.keywords, class_node.decorator_list, getattr(class_node, "type_params", None))
+
+        vars_stmts_body = get_vars_for_nodes(self, *class_node.body, _class=True)
+        vars_body = join_body_stmts_into_vars(*vars_stmts_body, _class=True)  
+
+        self.variables.input_variables |= (vars_body.input_variables - self.variables.assigned_variables - self.variables.output_variables)
+        self.variables.inputs_variables_in_function_in_class |= (vars_body.inputs_variables_in_function_in_class)
+        self.variables.output_variables |= set([class_node.name])
+        self.variables.assigned_variables |= set([class_node.name])
+        self.variables.nonlocal_variables |= vars_body.nonlocal_variables
+        self.variables.global_variables |= vars_body.global_variables
+
 
     def visit_Global(self, global_node):
         for name in global_node.names:
@@ -418,85 +457,16 @@ class ArgumentsVisitor(ast.NodeVisitor):
 
 
 
-x = 1
-class X:
-    x = 2
-    def f(self):
-        x = 3
-
-        class Y:
-            x = 4
-            def g(self):
-                return x
-    
-        return Y()
-    
-    class Y:
-        x = 5
-        def g(self):
-            return x
-        def gdef(self, v=x):
-            return v
-        
-    y = Y()
-
-
-
-X().y.g()  # This is 1, meaning x IS an input
-X().y.gdef()  # This is 5, meaning only what is in the BODY of a function becomes "Global"
-X().f().g()  # This is 3, meaning x IS NOT an input
-
-
-
-x = "out"
-xout = " xout"
-
-class A:
-    x = "in" 
-    y = x + (lambda: x)() + xout
-
-a = A()
-a.y
-
-
-
-def i(a, x):
-    return x+" iout "
-
-v = "vout"
-k = "3"
-
-class A:
-    @staticmethod
-    def i(self, x):
-        return x + " iin " 
-    
-    def i2(self, x):
-        return x + " i2in "+ "(" + i(0, "iwithini2:") + ")" "(vwithini2:" +v + ")"
-    
-    i3 = lambda x: x + " i3in "
-
-    v = "5"
-
-    v2 = v + " 100 " + k  +" " + i2(0, "3") + i(0, "4") + i3("5")
-
-    def j(self):
-        return self.i2("6") + v
-    
-a = A()
-a.j()
-
-a.v2
 
 ####################################################################################################
 ######################### HELPER FUNCTIONS ##########################################
 ####################################################################################################
         
-def join_body_stmts_into_vars(*stmts: ExposedVariables):
-    return v_merge(*stmts)  # CHECK: Is this enough?
+def join_body_stmts_into_vars(*stmts: ExposedVariables, _class=False):
+    return v_merge(*stmts, _class=_class)  # CHECK: Is this enough?
 
-def get_vars_for_nodes(visitor: TempScopeVisitor, *nodes: ast.AST):
-    scopes = [TempScopeVisitor(ExposedVariables(), class_binds_near=visitor.class_binds_near, is_introducing_variables=visitor.is_introducing_variables, is_lhs_target=visitor.is_lhs_target, is_also_input_of_aug_assign=visitor.is_also_input_of_aug_assign) for _ in nodes]
+def get_vars_for_nodes(visitor: TempScopeVisitor, *nodes: ast.AST, _class=False):
+    scopes = [TempScopeVisitor(ExposedVariables(), class_binds_near=visitor.class_binds_near, is_introducing_variables=visitor.is_introducing_variables, is_lhs_target=visitor.is_lhs_target, is_also_input_of_aug_assign=visitor.is_also_input_of_aug_assign, _class=visitor._class or _class) for _ in nodes]
     for scope, node in zip(scopes, nodes):
         scope.visit(node)
     return [scope.variables for scope in scopes]
@@ -530,11 +500,11 @@ def annotate(dag_nodes: ast.AST):
     annotator.visit(tree)
     return annotator.variables
 
-def get_input_variables_for(annotated_variables):
+def get_input_variables_for(annotated_variables: ExposedVariables):
     """
     Returns a list of all the variables that are referenced in the given scope
     """
-    return annotated_variables.input_variables, set([])
+    return annotated_variables.input_variables | annotated_variables.inputs_variables_in_function_in_class, set([])
 
 def get_output_variables_for(annotated_variables):
     """
@@ -543,7 +513,8 @@ def get_output_variables_for(annotated_variables):
     return annotated_variables.output_variables, set([])
 
 
-    
+
+
 
 # test
 code = """
@@ -950,9 +921,7 @@ assert outputs == {'yy'}
 
 
 
-######################## TODO/ Wrong stuff:
-
-# test
+# test  # WAAAA k:= within same expr ???
 code = """
 yy = 4+5*( (k:=(a+b)) + (lambda x: 7+a+k)(c) )
 """
@@ -961,7 +930,7 @@ yy = 4+5*( (k:=(a+b)) + (lambda x: 7+a+k)(c) )
 # determining if they are (out->in) or (in->out) >BASED ON THE POS IN THE EXPRESSION<, this is the whole point !!!)
 tree = ast.parse(code).body[0]
 inputs, errors = get_input_variables_for(annotate(tree)); inputs
-assert inputs == {'a', 'b', 'c', 'k'} 
+assert inputs == {'a', 'b', 'c'} 
 outputs, errors = get_output_variables_for(annotate(tree)); outputs
 assert outputs == {'k', 'yy'}
 
@@ -1081,6 +1050,60 @@ outputs, errors = get_output_variables_for(annotate(tree)); outputs
 assert outputs == {'a', 'f', 'k', 'y'}
 
 
+
+
+
+code = """
+x = [(y, a) for y in range(1,5+b )]
+"""
+tree = ast.parse(code).body[0]
+inputs, errors = get_input_variables_for(annotate(tree)); inputs
+assert inputs == {'a', 'b', 'range'}
+outputs, errors = get_output_variables_for(annotate(tree)); outputs
+assert outputs == {'x'}
+
+
+
+code = """
+x = {y: c for y in range(1,5+b )}
+"""
+tree = ast.parse(code).body[0]
+inputs, errors = get_input_variables_for(annotate(tree)); inputs
+assert inputs == {'c', 'b', 'range'}
+outputs, errors = get_output_variables_for(annotate(tree)); outputs
+assert outputs == {'x'}
+
+
+code = """
+x = {y: c for y, c in range(1,5+b )}
+"""
+tree = ast.parse(code).body[0]
+inputs, errors = get_input_variables_for(annotate(tree)); inputs
+assert inputs == {'b', 'range'}
+outputs, errors = get_output_variables_for(annotate(tree)); outputs
+assert outputs == {'x'}
+
+
+
+code = """
+x = [(y, a) for y in range(1,5+b ) if (z:=(y + 5 + b)) > z + c]
+"""
+tree = ast.parse(code).body[0]
+inputs, errors = get_input_variables_for(annotate(tree)); inputs
+assert inputs == {'a', 'b', 'c', 'range'}
+outputs, errors = get_output_variables_for(annotate(tree)); outputs
+assert outputs == {'x', 'z'}
+
+
+
+code = """
+x = [(y, a) for y in range(1,5+b ) if z + c > (z:=(y + 5 + b))]
+"""
+tree = ast.parse(code).body[0]
+inputs, errors = get_input_variables_for(annotate(tree)); inputs
+assert inputs == {'a', 'b', 'c', 'range', 'z'}
+outputs, errors = get_output_variables_for(annotate(tree)); outputs
+assert outputs == {'x', 'z'}
 
 
 
@@ -1441,8 +1464,6 @@ assert outputs == {'a', 'x', 'z'}
 
 
 
-
-
 ######################### classes ############################
 
 
@@ -1479,6 +1500,15 @@ outputs, errors = get_output_variables_for(annotate(tree)); outputs
 assert outputs == {'X'}
 
 
+# x = 5
+# class X:
+#     x = 3
+#     x
+
+# x = 5
+# X().x
+
+
 code = """
 class X:
     x = 3
@@ -1486,7 +1516,7 @@ class X:
 """
 tree = ast.parse(code).body[0]
 inputs, errors = get_input_variables_for(annotate(tree)); inputs
-assert inputs == {'x'}  # APPARENTLY this is right...
+assert inputs == set()
 outputs, errors = get_output_variables_for(annotate(tree)); outputs
 assert outputs == {'X'}
 
@@ -1569,7 +1599,7 @@ tree = ast.parse(code).body[0]
 inputs, errors = get_input_variables_for(annotate(tree)); inputs
 assert inputs == {'x'}
 outputs, errors = get_output_variables_for(annotate(tree)); outputs
-assert outputs == {'f', 'x'}
+assert outputs == {'f'}
 
 
 code = """
@@ -1594,7 +1624,7 @@ class X:
 """
 tree = ast.parse(code).body[0]
 inputs, errors = get_input_variables_for(annotate(tree)); inputs
-assert inputs == {'x'}
+assert inputs == set()
 outputs, errors = get_output_variables_for(annotate(tree)); outputs
 assert outputs == {'X'}
 
@@ -1614,7 +1644,31 @@ assert outputs == {'X'}
 
 
 
+
+
+
+
+
+
+
+
+
+
 ######### BROKENS:
+
+
+# test_global_escapes_scope
+code = """
+def f():
+    global v
+    v[100] =2
+"""
+tree = ast.parse(code)
+inputs, errors = get_input_variables_for(annotate(tree)); inputs
+assert inputs == {'v'}
+outputs, errors = get_output_variables_for(annotate(tree)); outputs
+assert outputs == {'f'}
+# TODO: arguably Broken . Should f be an output ?
 
 # test_no_nonlocal
 code = """
@@ -1666,18 +1720,6 @@ tree = ast.parse(code)
 # TODO: Broken !!
 
 
-# test_global_escapes_scope
-code = """
-def f():
-    global v
-    v[100] =2
-"""
-tree = ast.parse(code)
-inputs, errors = get_input_variables_for(annotate(tree)); inputs
-assert inputs == {'v'}
-outputs, errors = get_output_variables_for(annotate(tree)); outputs
-assert outputs == {'f', 'v'}
-# TODO: Broken !!
 
 # test_global_escapes_scope
 code = """
@@ -1705,3 +1747,109 @@ lambda x, y: lambda y, z: t + x + y + z
 t = x = y = z = 0
 """
 # TODO: Check...
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+####################################################################################################
+####################################################################################################
+####################################################################################################
+
+
+x = 1
+y = 1
+class A:
+    x = 2
+    y = 2
+    def f(self):
+        x = 3
+
+        class B:
+            x = 4
+            y = 4
+            def g(self):
+                return x
+            def h(self):
+                return y
+    
+        return B()
+    
+    class B:
+        x = 5
+        def g(self):
+            return x
+        def gdef(self, v=x):
+            return v
+        
+    a = B()
+
+
+
+A().a.g()  # This is 1, meaning x IS an input
+A().a.gdef()  # This is 5, meaning only what is in the BODY of a function becomes "Global"
+A().f().g()  # This is 3, meaning x IS NOT an input
+A().f().h()  # 1 or 2? In my current system (collapsing classVars @ Func level) would coe out 2...
+
+
+
+x = "out"
+xout = " xout"
+
+class A:
+    x = "in" 
+    y = x + (lambda: x)() + xout
+
+a = A().y
+a
+
+
+a = 5
+def geta():
+    return a
+
+geta()
+a = 6
+geta()
+
+
+
+def i(a, x):
+    return x+" iout "
+
+v = "vout"
+k = "3"
+
+class A:
+    @staticmethod
+    def i(self, x):
+        return x + " iin " 
+    
+    def i2(self, x):
+        return x + " i2in "+ "(" + i(0, "iwithini2:") + ")" "(vwithini2:" +v + ")"
+    
+    i3 = lambda x: x + " i3in "
+
+    v = "5"
+
+    v2 = v + " 100 " + k  +" " + i2(0, "3") + i(0, "4") + i3("5")
+
+    def j(self):
+        return self.i2("6") + v
+    
+a = A()
+a.j()
+
+a.v2
