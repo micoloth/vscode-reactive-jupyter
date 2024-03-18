@@ -111,7 +111,6 @@ class AstNodeData:
 class ExposedVariables():
     input_variables: Set[str] = dataclasses.field(default_factory=set)
     output_variables: Set[str] = dataclasses.field(default_factory=set)
-    assigned_variables: Set[str] = dataclasses.field(default_factory=set)
     nonlocal_variables: Set[str] = dataclasses.field(default_factory=set)
     global_variables: Set[str] = dataclasses.field(default_factory=set)
     introduced_variables: Set[str] = dataclasses.field(default_factory=set) # These are the params in a function, or the target n a For or a With or exception, or even the variables in a class
@@ -129,7 +128,6 @@ def h_merge(*exposed_variables: ExposedVariables):
     for ev in exposed_variables:
         result.input_variables |= ev.input_variables
         result.output_variables |= ev.output_variables
-        result.assigned_variables |= ev.assigned_variables
         result.nonlocal_variables |= ev.nonlocal_variables
         result.global_variables |= ev.global_variables
         result.introduced_variables |= ev.introduced_variables
@@ -140,14 +138,13 @@ def v_merge(*exposed_variables: ExposedVariables, _class=False):
     """Merge vertically, or in Sequence: The order matters, here!"""
     result = ExposedVariables()
     for ev in exposed_variables:
-        result.input_variables |= (ev.input_variables - result.assigned_variables - result.output_variables)
+        result.input_variables |= (ev.input_variables - result.output_variables)
         result.output_variables |= ev.output_variables
-        result.assigned_variables |= ev.assigned_variables
         result.nonlocal_variables |= ev.nonlocal_variables
         result.global_variables |= ev.global_variables
         result.introduced_variables |= ev.introduced_variables
         if not _class:
-            result.inputs_variables_in_function_in_class |= (ev.inputs_variables_in_function_in_class - result.assigned_variables - result.output_variables)
+            result.inputs_variables_in_function_in_class |= (ev.inputs_variables_in_function_in_class - result.output_variables)
         else:
             result.inputs_variables_in_function_in_class |= ev.inputs_variables_in_function_in_class
     return result
@@ -166,15 +163,13 @@ def v_merge(*exposed_variables: ExposedVariables, _class=False):
 ############################################################################################################################
 
 class TempScopeVisitor(ast.NodeVisitor):
-    def __init__(self, variables: ExposedVariables, class_binds_near, is_lhs_target=False, is_also_input_of_aug_assign=False, is_introducing_variables=False, _class=False):
+    def __init__(self, variables: ExposedVariables, is_lhs_target=False, is_also_input_of_aug_assign=False, _class=False):
         """ Not how it receives 'variables' by REFERENCE !! """
         # self.node: ast.AST = node
         # self.parent: "TempScope" = parent
         self.variables: ExposedVariables = variables  # dataclasses.field(default_factory=ExposedVariables)
         self.is_lhs_target = is_lhs_target
         self.is_also_input_of_aug_assign = is_also_input_of_aug_assign
-        self.class_binds_near = class_binds_near
-        self.is_introducing_variables = is_introducing_variables
         self._class = _class
 
     # NOTE NamedExpr(target, value): HERE we go. WAIT tho.. This is ALREADY FINE cuz the target is a Store? isnt this right?
@@ -184,7 +179,6 @@ class TempScopeVisitor(ast.NodeVisitor):
     def visit_Name(self, name_node, ):
         is_input = type(name_node.ctx) is ast.Load or self.is_also_input_of_aug_assign
         is_output = self.is_lhs_target or type(name_node.ctx) is ast.Store or type(name_node.ctx) is ast.Del
-        is_assignment = type(name_node.ctx) is ast.Store or type(name_node.ctx) is ast.Del
         # is_introduction = # TODO
 
         if is_input and not name_node.id in self.variables.output_variables:  
@@ -193,23 +187,21 @@ class TempScopeVisitor(ast.NodeVisitor):
             self.variables.input_variables.add(name_node.id)
         if is_output:
             self.variables.output_variables.add(name_node.id)
-        if is_assignment:
-            self.variables.assigned_variables.add(name_node.id)
 
     def visit_Subscript(self, subscr_node):  # HERE we go!
         if type(subscr_node.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near, _class=self._class)
+            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, _class=self._class)
             lhs_visitor.visit(subscr_node.value)
         elif type(subscr_node.ctx) is ast.Load:
             self.visit(subscr_node.value)
         else:
             raise RuntimeError("Unsupported node type: {name_node}".format(name_node=subscr_node))
-        lhs_load_visitor = TempScopeVisitor(self.variables, is_lhs_target=False, is_also_input_of_aug_assign=False, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near, _class=self._class)
+        lhs_load_visitor = TempScopeVisitor(self.variables, is_lhs_target=False, is_also_input_of_aug_assign=False, _class=self._class)
         lhs_load_visitor.visit(subscr_node.slice)
 
     def visit_Attribute(self, attribute):  # HERE we go!
         if type(attribute.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near, _class=self._class)
+            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, _class=self._class)
             lhs_visitor.visit(attribute.value)
         elif type(attribute.ctx) is ast.Load:
             self.visit(attribute.value)
@@ -223,18 +215,18 @@ class TempScopeVisitor(ast.NodeVisitor):
 
     def visit_AugAssign(self, augassign_node):  # HERE we go!
         if type(augassign_node.target.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=True, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near, _class=self._class)
+            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=True, _class=self._class)
             lhs_visitor.visit(augassign_node.target)
         elif type(augassign_node.target.ctx) is ast.Load:
             self.visit(augassign_node.target)
         else:
             raise RuntimeError("Unsupported node type: {name_node}".format(name_node=augassign_node))
-        value_visitor = TempScopeVisitor(self.variables, is_lhs_target=False, is_also_input_of_aug_assign=False, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near, _class=self._class)
+        value_visitor = TempScopeVisitor(self.variables, is_lhs_target=False, is_also_input_of_aug_assign=False, _class=self._class)
         value_visitor.visit(augassign_node.value)
 
     def visit_List(self, list_node: ast.List):
         if type(list_node.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near, _class=self._class)
+            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, _class=self._class)
             visit_all(lhs_visitor, list_node.elts)
         elif type(list_node.ctx) is ast.Load:
             super().generic_visit(list_node)
@@ -243,7 +235,7 @@ class TempScopeVisitor(ast.NodeVisitor):
 
     def visit_Tuple(self, tuple_node: ast.Tuple):
         if type(tuple_node.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, is_introducing_variables=self.is_introducing_variables, class_binds_near=self.class_binds_near, _class=self._class)
+            lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, _class=self._class)
             visit_all(lhs_visitor, tuple_node.elts)
         elif type(tuple_node.ctx) is ast.Load:
             super().generic_visit(tuple_node)
@@ -264,11 +256,10 @@ class TempScopeVisitor(ast.NodeVisitor):
             visit_all(self, getattr(func_node, 'type_comment', None), func_node.decorator_list, func_node.returns)
 
         # 2. Visit the arguments
-        argument_visitor = TempScopeVisitor(ExposedVariables(), is_lhs_target=False, is_also_input_of_aug_assign=False, is_introducing_variables=True, class_binds_near=self.class_binds_near, _class=self._class)
+        argument_visitor = TempScopeVisitor(ExposedVariables(), is_lhs_target=False, is_also_input_of_aug_assign=False, _class=self._class)
         ArgumentsVisitor(self, argument_visitor).visit(func_node.args)
         self.variables.input_variables |= argument_visitor.variables.input_variables
         self.variables.output_variables |= argument_visitor.variables.output_variables
-        self.variables.assigned_variables |= argument_visitor.variables.assigned_variables
 
         # 3. Visit the body
         if type(func_node.body) == list:
@@ -289,13 +280,12 @@ class TempScopeVisitor(ast.NodeVisitor):
         if self._class:
             self.variables.inputs_variables_in_function_in_class |= input_vars
         else:
-            self.variables.input_variables |= (input_vars - self.variables.assigned_variables - self.variables.output_variables)
-            self.variables.inputs_variables_in_function_in_class |= (inputs_variables_in_function_in_class - self.variables.assigned_variables - self.variables.output_variables)
+            self.variables.input_variables |= (input_vars - self.variables.output_variables)
+            self.variables.inputs_variables_in_function_in_class |= (inputs_variables_in_function_in_class - self.variables.output_variables)
 
         # self.variables.inputs_variables_in_function_in_class |= (vars_body.inputs_variables_in_function_in_class - argument_visitor.variables.introduced_variables - func_name_set) | vars_body.global_variables
         # The following whould Never happen if not self._class, but u never know:
         self.variables.output_variables |= func_name_set
-        self.variables.assigned_variables |= func_name_set
         # self.variables.nonlocal_variables |= vars_body.nonlocal_variables
         self.variables.global_variables |= vars_body.global_variables
         # TODO: globals??  IN THEORY, a global is 
@@ -324,7 +314,6 @@ class TempScopeVisitor(ast.NodeVisitor):
         vars_scope = v_merge(*comprehension_scopes, h_merge(*targets_scopes))
         # Remove vars target from the output vars by hand:
         vars_scope.output_variables -= set(all_vars_target)
-        vars_scope.assigned_variables -= set(all_vars_target)
         self.variables = v_merge(self.variables, vars_scope)
 
     def visit_DictComp(self, comp_node: ast.DictComp):
@@ -400,7 +389,7 @@ class TempScopeVisitor(ast.NodeVisitor):
 
         all_vars_handlers = []
         for handler in node.handlers:
-            scope = TempScopeVisitor(ExposedVariables(), class_binds_near=self.class_binds_near, is_introducing_variables=self.is_introducing_variables, is_lhs_target=self.is_lhs_target, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, _class=self._class)
+            scope = TempScopeVisitor(ExposedVariables(), is_lhs_target=self.is_lhs_target, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, _class=self._class)
             visit_all(scope, handler.type, handler.name)
         
             vars_stmts_handler = get_vars_for_nodes(scope, *handler.body, _class=self._class)
@@ -422,10 +411,9 @@ class TempScopeVisitor(ast.NodeVisitor):
         vars_stmts_body = get_vars_for_nodes(self, *class_node.body, _class=True)
         vars_body = join_body_stmts_into_vars(*vars_stmts_body, _class=True)  
 
-        self.variables.input_variables |= (vars_body.input_variables - self.variables.assigned_variables - self.variables.output_variables)
+        self.variables.input_variables |= (vars_body.input_variables - self.variables.output_variables)
         self.variables.inputs_variables_in_function_in_class |= (vars_body.inputs_variables_in_function_in_class)
         self.variables.output_variables |= set([class_node.name])
-        self.variables.assigned_variables |= set([class_node.name])
         self.variables.nonlocal_variables |= vars_body.nonlocal_variables
         self.variables.global_variables |= vars_body.global_variables
 
@@ -466,7 +454,7 @@ def join_body_stmts_into_vars(*stmts: ExposedVariables, _class=False):
     return v_merge(*stmts, _class=_class)  # CHECK: Is this enough?
 
 def get_vars_for_nodes(visitor: TempScopeVisitor, *nodes: ast.AST, _class=False):
-    scopes = [TempScopeVisitor(ExposedVariables(), class_binds_near=visitor.class_binds_near, is_introducing_variables=visitor.is_introducing_variables, is_lhs_target=visitor.is_lhs_target, is_also_input_of_aug_assign=visitor.is_also_input_of_aug_assign, _class=visitor._class or _class) for _ in nodes]
+    scopes = [TempScopeVisitor(ExposedVariables(), is_lhs_target=visitor.is_lhs_target, is_also_input_of_aug_assign=visitor.is_also_input_of_aug_assign, _class=visitor._class or _class) for _ in nodes]
     for scope, node in zip(scopes, nodes):
         scope.visit(node)
     return [scope.variables for scope in scopes]
@@ -496,7 +484,7 @@ def get_name(node):
 
 
 def annotate(dag_nodes: ast.AST):
-    annotator = TempScopeVisitor(ExposedVariables(), class_binds_near=False) # TODO: class_binds_near
+    annotator = TempScopeVisitor(ExposedVariables()) # TODO: class_binds_near
     annotator.visit(tree)
     return annotator.variables
 
