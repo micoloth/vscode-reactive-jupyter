@@ -1,5 +1,8 @@
 
 
+## 0.4.0 - 2024-03-19
+* Complete Refactor of the Python Parsing, to fix several subtle bugs
+
 ## 0.2.0 - 2024-03-01
 * Disable Codelenses setting
 * Sligthly lighter colors
