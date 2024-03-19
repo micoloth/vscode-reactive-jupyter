@@ -45,172 +45,91 @@ class ReactivePythonDagBuilderUtils__():
             return {child for parent, child in generic_bfs_edges_with_pruning(G, source, G.neighbors, pruning_condition=pruning_condition)}
 
 
-
-        @dataclasses.dataclass
-        class AstNodeData:
-            node_name: str
-            temp_scope: "TempScope"
-            is_input: Optional[bool]
-            is_output: Optional[bool]
-            is_assignment: Optional[bool]
-
-
-        ####################################################################################################
-        ######################### INTERMEDIATE DATACLASSES: Variables, TempScope, and Scope ##########################################
-        ####################################################################################################
-
-        @dataclasses.dataclass
-        class TempScopeVariables():
-            referenced_variables: Set[str] = dataclasses.field(default_factory=set) 
-            assigned_variables: Set[str] = dataclasses.field(default_factory=set) 
-            nonlocal_variables: Set[str] = dataclasses.field(default_factory=set) 
-            global_variables: Set[str] = dataclasses.field(default_factory=set) 
-
-        @dataclasses.dataclass
-        class GlobalTempScope():
-            variables: TempScopeVariables = dataclasses.field(default_factory=TempScopeVariables)
-
-        @dataclasses.dataclass
-        class FunctionTempScope():
-            node: ast.AST
-            parent: "TempScope"
-            variables: TempScopeVariables = dataclasses.field(default_factory=TempScopeVariables)
-
-        @dataclasses.dataclass
-        class BlockTempScope():  # This is used for With and ForLoops !
-            node: ast.AST
-            parent: "TempScope"
-            variables: TempScopeVariables = dataclasses.field(default_factory=TempScopeVariables)
-
-        @dataclasses.dataclass
-        class ClassTempScope():
-            node: ast.AST
-            parent: "TempScope"
-            class_binds_near: bool = False 
-            variables: TempScopeVariables = dataclasses.field(default_factory=TempScopeVariables)
-            
-        TempScope = Union[GlobalTempScope, FunctionTempScope, ClassTempScope]
-
-
-        @dataclasses.dataclass
-        class ScopeVarObject():
-            node: ast.AST
-            is_input: Optional[bool]
-            is_output: Optional[bool]
-
-            # Make this hashable, using all the fields:
-            def __hash__(self):
-                return hash((self.node, self.is_input, self.is_output))
-
-        @dataclasses.dataclass
-        class Variables:
-            variables: Set[ScopeVarObject] = dataclasses.field(default_factory=set)
-            functions: Set[ScopeVarObject] = dataclasses.field(default_factory=set)
-            classes: Set[ScopeVarObject] = dataclasses.field(default_factory=set)
-            import_statements: Set[ScopeVarObject] = dataclasses.field(default_factory=set)
-
-        @dataclasses.dataclass
-        class ErrorScope():
-            variables: Variables = dataclasses.field(default_factory=Variables)
-            
-        @dataclasses.dataclass
-        class GlobalScope():
-            variables: Variables = dataclasses.field(default_factory=Variables)
-            children: List["Scope"] = dataclasses.field(default_factory=list) 
-
-        @dataclasses.dataclass
-        class FunctionScope():
-            parent: "Scope"
-            function_node: Union[ast.FunctionDef, ast.Lambda, ast.AsyncFunctionDef]
-            variables: Variables = dataclasses.field(default_factory=Variables)
-            children: List["Scope"] = dataclasses.field(default_factory=list) 
-
-        @dataclasses.dataclass
-        class BlockScope():    # This is used for With and ForLoops !
-            parent: "Scope"
-            node: ast.AST
-            variables: Variables = dataclasses.field(default_factory=Variables)
-            children: List["Scope"] = dataclasses.field(default_factory=list) 
-
-        @dataclasses.dataclass
-        class ClassScope():
-            parent: "Scope"
-            class_node: ast.ClassDef
-            variables: Variables = dataclasses.field(default_factory=Variables)
-
-        Scope = Union[GlobalScope, FunctionScope, ClassScope, ErrorScope]
-
-
         ############################################################################################################################
-        ########### THE AST VISITORS: the first produces a TempScope, the second uses it to produce a Scope #######################
+        ########### THE AST VISITORS: extract input and output variables from Python statements: #######################
         ############################################################################################################################
+
+
+        @dataclasses.dataclass
+        class ExposedVariables():
+            input_variables: Set[str] = dataclasses.field(default_factory=set)
+            output_variables: Set[str] = dataclasses.field(default_factory=set)
+            nonlocal_variables: Set[str] = dataclasses.field(default_factory=set)
+            global_variables: Set[str] = dataclasses.field(default_factory=set)
+            introduced_variables: Set[str] = dataclasses.field(default_factory=set) # These are the params in a function, or the target n a For or a With or exception, or even the variables in a class
+            inputs_variables_in_function_in_class: Set[str] = dataclasses.field(default_factory=set)  # These are the variables that are used by the body of a function that is inside a class
+
 
         class TempScopeVisitor(ast.NodeVisitor):
-            def __init__(self, current_tempscope, all_tempscope_data, class_binds_near, is_lhs_target=False, is_also_input_of_aug_assign=False):
-                self.current_tempscope: TempScope = current_tempscope
-                self.all_tempscope_data: Dict[ast.AST, AstNodeData] = all_tempscope_data
+            def __init__(self, variables: ExposedVariables, is_lhs_target=False, is_also_input_of_aug_assign=False, _class=False):
+                """ Not how it receives 'variables' by REFERENCE !! """
+                # self.node: ast.AST = node
+                # self.parent: "TempScope" = parent
+                self.variables: ExposedVariables = variables  # dataclasses.field(default_factory=ExposedVariables)
                 self.is_lhs_target = is_lhs_target
                 self.is_also_input_of_aug_assign = is_also_input_of_aug_assign
-                self.class_binds_near = class_binds_near
-
-            # NOTE NamedExpr(target, value): HERE we go. WAIT tho.. This is ALREADY FINE cuz the target is a Store? isnt this right?
-            # NOTE Attribute(value, attr, ctx) where attr is a BARE STR and ctx like in name: SOULD i act on this?? K, probably not
-            # NOTE: About the := operator - it SHOULD be already handled by the visitName's !!!
+                self._class = _class
 
             def visit_Name(self, name_node, ):
                 is_input = type(name_node.ctx) is ast.Load or self.is_also_input_of_aug_assign
                 is_output = self.is_lhs_target or type(name_node.ctx) is ast.Store or type(name_node.ctx) is ast.Del
-                is_assignment = type(name_node.ctx) is ast.Store or type(name_node.ctx) is ast.Del
-                
-                self.all_tempscope_data[name_node] = AstNodeData(name_node.id, self.current_tempscope, is_input, is_output, is_assignment)
-                if is_input:
-                    self.current_tempscope.variables.referenced_variables.add(name_node.id)           
-                elif is_output:
-                    self.current_tempscope.variables.assigned_variables.add(name_node.id)
+                # is_introduction = # TODO
+
+                if is_input and not name_node.id in self.variables.output_variables:  
+                    # TODO: This is an attempt to fix the problem of "k:=x" within an expression.
+                    # it's NOT OBVIOUS that it doesn't break anything !!
+                    self.variables.input_variables.add(name_node.id)
+                if is_output:
+                    self.variables.output_variables.add(name_node.id)
 
             def visit_Subscript(self, subscr_node):  # HERE we go!
                 if type(subscr_node.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-                    lhs_visitor = TempScopeVisitor(self.current_tempscope, self.all_tempscope_data, self.class_binds_near, is_lhs_target=True)
+                    lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, _class=self._class)
                     lhs_visitor.visit(subscr_node.value)
                 elif type(subscr_node.ctx) is ast.Load:
-                    self.visit(subscr_node.value) 
+                    self.visit(subscr_node.value)
                 else:
                     raise RuntimeError("Unsupported node type: {name_node}".format(name_node=subscr_node))
-                lhs_load_visitor = TempScopeVisitor(self.current_tempscope, self.all_tempscope_data, self.class_binds_near, is_lhs_target=False)  # QUESTION: Should this be ALWASY False?? 
-                lhs_load_visitor.visit(subscr_node.slice) 
+                lhs_load_visitor = TempScopeVisitor(self.variables, is_lhs_target=False, is_also_input_of_aug_assign=False, _class=self._class)
+                lhs_load_visitor.visit(subscr_node.slice)
 
             def visit_Attribute(self, attribute):  # HERE we go!
                 if type(attribute.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-                    lhs_visitor = TempScopeVisitor(self.current_tempscope, self.all_tempscope_data, self.class_binds_near, is_lhs_target=True)
+                    lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, _class=self._class)
                     lhs_visitor.visit(attribute.value)
                 elif type(attribute.ctx) is ast.Load:
-                    self.visit(attribute.value) 
+                    self.visit(attribute.value)
                 else:
                     raise RuntimeError("Unsupported node type: {name_node}".format(name_node=attribute))
+                
+            def visit_Assign(self, assign_node):  # HERE we go!
+                value = get_vars_for_nodes(self, assign_node.value)
+                targets = get_vars_for_nodes(self, *assign_node.targets)
+                self.variables = v_merge(self.variables, *value, h_merge(*targets), _class=self._class)
 
             def visit_AugAssign(self, augassign_node):  # HERE we go!
                 if type(augassign_node.target.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-                    lhs_visitor = TempScopeVisitor(self.current_tempscope, self.all_tempscope_data, self.class_binds_near, is_lhs_target=True, is_also_input_of_aug_assign=True)
+                    lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=True, _class=self._class)
                     lhs_visitor.visit(augassign_node.target)
                 elif type(augassign_node.target.ctx) is ast.Load:
-                    self.visit(augassign_node.target) 
+                    self.visit(augassign_node.target)
                 else:
                     raise RuntimeError("Unsupported node type: {name_node}".format(name_node=augassign_node))
-                value_visitor = TempScopeVisitor(self.current_tempscope, self.all_tempscope_data, self.class_binds_near, is_lhs_target=False, is_also_input_of_aug_assign=False)
+                value_visitor = TempScopeVisitor(self.variables, is_lhs_target=False, is_also_input_of_aug_assign=False, _class=self._class)
                 value_visitor.visit(augassign_node.value)
-            
-            def visit_List(self, list_node):
+
+            def visit_List(self, list_node: ast.List):
                 if type(list_node.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-                    lhs_visitor = TempScopeVisitor(self.current_tempscope, self.all_tempscope_data, self.class_binds_near, is_lhs_target=True)
+                    lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, _class=self._class)
                     visit_all(lhs_visitor, list_node.elts)
                 elif type(list_node.ctx) is ast.Load:
                     super().generic_visit(list_node)
                 else:
                     raise RuntimeError("Unsupported node type: {name_node}".format(name_node=list_node))
-                
-            def visit_Tuple(self, tuple_node):
+
+            def visit_Tuple(self, tuple_node: ast.Tuple):
                 if type(tuple_node.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-                    lhs_visitor = TempScopeVisitor(self.current_tempscope, self.all_tempscope_data, self.class_binds_near, is_lhs_target=True)
+                    lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, _class=self._class)
                     visit_all(lhs_visitor, tuple_node.elts)
                 elif type(tuple_node.ctx) is ast.Load:
                     super().generic_visit(tuple_node)
@@ -219,94 +138,185 @@ class ReactivePythonDagBuilderUtils__():
 
             def visit_alias(self, alias_node):
                 variable = alias_node.asname if alias_node.asname is not None else alias_node.name
-                self.all_tempscope_data[alias_node] = AstNodeData(variable, self.current_tempscope, False, True, True)
-                self.current_tempscope.variables.assigned_variables.add(variable)
+                self.variables.output_variables.add(variable)
 
             def visit_arg(self, arg):
-                self.all_tempscope_data[arg] = AstNodeData(arg.arg, self.current_tempscope, False, True, True)
-                self.current_tempscope.variables.assigned_variables.add(arg.arg)
+                self.variables.introduced_variables.add(arg.arg)
 
-            def visit_FunctionDef(self, func_node):
-                self.all_tempscope_data[func_node] = AstNodeData(func_node.name, self.current_tempscope, False, True, True)
-                self.current_tempscope.variables.assigned_variables.add(func_node.name)
-                _temp_scope = FunctionTempScope(node=func_node, parent=self.current_tempscope)
-                subscope = TempScopeVisitor(_temp_scope, self.all_tempscope_data, self.class_binds_near)
-                visit_all(self, getattr(func_node, 'type_comment', None), func_node.decorator_list)
-                ArgumentsVisitor(self, subscope).visit(func_node.args)
-                visit_all(subscope, func_node.body, func_node.returns)
+            def _visit_function(self, func_node: Union[ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda], func_name=None):
+                
+                # 1. Visit the type comment and the decorators
+                if type(func_node) != ast.Lambda:
+                    visit_all(self, getattr(func_node, 'type_comment', None), func_node.decorator_list, func_node.returns)
 
-            def visit_AsyncFunctionDef(self, func_node):
-                self.all_tempscope_data[func_node] = AstNodeData(func_node.name, self.current_tempscope, False, True, True)
-                self.current_tempscope.variables.assigned_variables.add(func_node.name)
-                _temp_scope = FunctionTempScope(node=func_node, parent=self.current_tempscope)
-                subscope = TempScopeVisitor(_temp_scope, self.all_tempscope_data, self.class_binds_near)
-                visit_all(self, getattr(func_node, 'type_comment', None), func_node.decorator_list)
-                ArgumentsVisitor(self, subscope).visit(func_node.args)
-                visit_all(subscope, func_node.body, func_node.returns)
+                # 2. Visit the arguments
+                argument_visitor = TempScopeVisitor(ExposedVariables(), is_lhs_target=False, is_also_input_of_aug_assign=False, _class=self._class)
+                ArgumentsVisitor(self, argument_visitor).visit(func_node.args)
+                self.variables.input_variables |= argument_visitor.variables.input_variables
+                self.variables.output_variables |= argument_visitor.variables.output_variables
 
-            def visit_Lambda(self, func_node):
-                self.all_tempscope_data[func_node] = AstNodeData('<lambda>', self.current_tempscope, None, None, None)
-                _temp_scope = FunctionTempScope(node=func_node, parent=self.current_tempscope)
-                subscope = TempScopeVisitor(_temp_scope, self.all_tempscope_data, self.class_binds_near)
-                ArgumentsVisitor(self, subscope).visit(func_node.args)
-                visit_all(subscope, func_node.body)
+                # 3. Visit the body
+                if type(func_node.body) == list:
+                    vars_stmts_body = get_vars_for_nodes(self, *func_node.body, _class=False)  
+                else: # This is the Lambda case
+                    vars_stmts_body = get_vars_for_nodes(self, func_node.body, _class=False)
+                vars_body = join_body_stmts_into_vars(*vars_stmts_body, _class=False)
+                
+                # 4 get func name:
+                func_name_set: Set[str] = set([func_name]) if func_name else set()
 
-            def visit_With(self, node):
-                self.all_tempscope_data[node] = AstNodeData('<with>', self.current_tempscope, False, True, False)
-                _temp_scope = BlockTempScope(node=node, parent=self.current_tempscope)
-                subscope = TempScopeVisitor(_temp_scope, self.all_tempscope_data, self.class_binds_near)
-                visit_all(self, getattr(node, 'type_comment', None))
-                for item in node.items:
-                    if item.optional_vars:
-                        subscope.visit(item.optional_vars)
-                    self.visit(item.context_expr)
-                visit_all(subscope, node.body)
+                # 4. Keep the body's Input but REMOVE the arguments' introduced variables. The only output is the function name, PLUS eventual outputs from Self
+                # And also the name itself, for Recursive calls
 
-            def visit_For(self, node):
-                self.all_tempscope_data[node] = AstNodeData('<for>', self.current_tempscope, False, True, False)
-                _temp_scope = BlockTempScope(node=node, parent=self.current_tempscope)
-                subscope = TempScopeVisitor(_temp_scope, self.all_tempscope_data, self.class_binds_near)
-                visit_all(self, getattr(node, 'type_comment', None), node.iter, node.target)
-                visit_all(subscope, node.target, node.body, node.orelse)
+                input_vars = (vars_body.input_variables - argument_visitor.variables.introduced_variables - func_name_set) 
+                inputs_variables_in_function_in_class = (vars_body.inputs_variables_in_function_in_class - argument_visitor.variables.introduced_variables - func_name_set) 
+                globals_and_nonlocals = vars_body.global_variables | vars_body.nonlocal_variables
 
-            def _visit_comprehension(self, targets, comprehensions, typ):
-                del typ
-                current_scope = self
+                if self._class:
+                    self.variables.inputs_variables_in_function_in_class |= input_vars | globals_and_nonlocals
+                else:
+                    self.variables.input_variables |= (input_vars - self.variables.output_variables) | globals_and_nonlocals
+                    self.variables.inputs_variables_in_function_in_class |= (inputs_variables_in_function_in_class - self.variables.output_variables) | globals_and_nonlocals
+
+                self.variables.output_variables |= func_name_set
+                # self.variables.nonlocal_variables |= vars_body.nonlocal_variables
+                self.variables.global_variables |= vars_body.global_variables
+
+            def visit_FunctionDef(self, func_node: ast.FunctionDef):
+                self._visit_function(func_node, func_name=func_node.name)
+
+            def visit_AsyncFunctionDef(self, func_node: ast.AsyncFunctionDef):
+                self._visit_function(func_node, func_name=func_node.name)
+
+            def visit_Lambda(self, func_node: ast.Lambda):
+                self._visit_function(func_node)
+
+            def _visit_comprehension(self, targets: List[ast.AST], comprehensions: List[ast.comprehension]):
+
+                comprehension_scopes = []
+                all_vars_target = []
                 for comprehension in comprehensions:
-                    self.all_tempscope_data[comprehension] = AstNodeData('<comp>', self.current_tempscope, None, None, None)
-                    _temp_scope = FunctionTempScope(node=comprehension, parent=current_scope.current_tempscope)
-                    subscope = TempScopeVisitor(_temp_scope, self.all_tempscope_data, self.class_binds_near)
-                    visit_all(current_scope, comprehension.iter)
-                    visit_all(subscope, comprehension.target, comprehension.ifs)
-                    current_scope = subscope
-                visit_all(current_scope, targets)
+                    vars_target, vars_iter = get_vars_for_nodes(self, comprehension.target, comprehension.iter)
+                    vars_ifs = get_vars_for_nodes(self, *comprehension.ifs)
+                    comprehension_scopes.append(v_merge(vars_target, vars_iter, *vars_ifs))
+                    all_vars_target.extend(vars_target.output_variables)
 
-            def visit_DictComp(self, comp_node):
-                return self._visit_comprehension([comp_node.key, comp_node.value], comp_node.generators, comp_node)
+                targets_scopes = get_vars_for_nodes(self, *targets)
 
-            def visit_ListComp(self, comp_node):
-                return self._visit_comprehension([comp_node.elt], comp_node.generators, comp_node)
+                vars_scope = v_merge(*comprehension_scopes, h_merge(*targets_scopes))
+                # Remove vars target from the output vars by hand:
+                vars_scope.output_variables -= set(all_vars_target)
+                self.variables = v_merge(self.variables, vars_scope)
 
-            def visit_SetComp(self, comp_node):
-                return self._visit_comprehension([comp_node.elt], comp_node.generators, comp_node)
+            def visit_DictComp(self, comp_node: ast.DictComp):
+                return self._visit_comprehension([comp_node.key, comp_node.value], comp_node.generators)
 
-            def visit_GeneratorExp(self, comp_node):
-                return self._visit_comprehension([comp_node.elt], comp_node.generators, comp_node)
+            def visit_ListComp(self, comp_node: ast.ListComp):
+                return self._visit_comprehension([comp_node.elt], comp_node.generators)
 
-            def visit_ClassDef(self, class_node):
-                self.all_tempscope_data[class_node] = AstNodeData(class_node.name, self.current_tempscope, False, True, True)
-                self.current_tempscope.variables.assigned_variables.add(class_node.name)
-                _temp_scope = ClassTempScope(node=class_node, parent=self.current_tempscope, class_binds_near=self.class_binds_near)
-                subscope = TempScopeVisitor(_temp_scope, self.all_tempscope_data, self.class_binds_near)
-                ast.NodeVisitor.generic_visit(subscope, class_node)
+            def visit_SetComp(self, comp_node: ast.SetComp):
+                return self._visit_comprehension([comp_node.elt], comp_node.generators)
+
+            def visit_GeneratorExp(self, comp_node: ast.GeneratorExp):
+                return self._visit_comprehension([comp_node.elt], comp_node.generators)
+
+            def _visit_for(self, node: Union[ast.For, ast.AsyncFor]):
+                visit_all(self, getattr(node, 'type_comment', None))
+                vars_iter, vars_target = get_vars_for_nodes(self, node.iter, node.target)
+                vars_stmts_body = get_vars_for_nodes(self, node.target, node.iter, *node.body)
+                vars_body = join_body_stmts_into_vars(*vars_stmts_body, _class=self._class)
+                vars_stmts_orelse = get_vars_for_nodes(self, node.target, node.iter, *node.orelse)
+                vars_orelse = join_body_stmts_into_vars(*vars_stmts_orelse, _class=self._class)
+
+                self.variables = v_merge(self.variables, v_merge(vars_iter, vars_target, h_merge(vars_body, vars_orelse), _class=self._class), _class=self._class)
+
+            def visit_For(self, node: ast.For):
+                self._visit_for(node)
+
+            def visit_AsyncFor(self, node: ast.AsyncFor):
+                self._visit_for(node)
+
+
+            def _visit_with(self, node: Union[ast.With, ast.AsyncWith]):
+                visit_all(self, getattr(node, 'type_comment', None))
+                vars_stmts_body = get_vars_for_nodes(self, *node.body)
+                vars_body = join_body_stmts_into_vars(*vars_stmts_body) # TO CHECK: Is this right, _class=self._class?
+
+                items_vars = []
+                for item in node.items:
+                    vars = get_vars_for_nodes(self, item.context_expr, *([item.optional_vars] if item.optional_vars else []))
+                    items_vars.append(v_merge(*vars))  # TO CHECK: Is this right?
+
+                items_vars = v_merge(*items_vars, _class=self._class) # TO CHECK: Is this right?
+                self.variables = v_merge(self.variables, v_merge(items_vars, vars_body, _class=self._class), _class=self._class)  # TO CHECK: Is this right?
+
+            def visit_With(self, node: ast.With):
+                self._visit_with(node)
+            
+            def visit_AsyncWith(self, node: ast.AsyncWith):
+                self._visit_with(node)
+
+            def _visit_if_while(self, node: Union[ast.While, ast.If]):
+                vars_test = get_vars_for_nodes(self, node.test, _class=self._class)
+                vars_stmts_body = get_vars_for_nodes(self, *node.body, _class=self._class)
+                vars_body = join_body_stmts_into_vars(*vars_stmts_body, _class=self._class)
+                vars_stmts_orelse = get_vars_for_nodes(self, *node.orelse, _class=self._class)
+                vars_orelse = join_body_stmts_into_vars(*vars_stmts_orelse, _class=self._class)
+
+                self.variables = v_merge(self.variables, v_merge(*vars_test, h_merge(vars_body, vars_orelse), _class=self._class), _class=self._class)
+                
+            def visit_If(self, node: ast.If):
+                self._visit_if_while(node)
+
+            def visit_While(self, node: ast.While):
+                self._visit_if_while(node)  
+
+            def _visit_try(self, node: ast.Try):  # ast.TryStar
+                vars_stmts_body = get_vars_for_nodes(self, *node.body, _class=self._class)
+                vars_body = join_body_stmts_into_vars(*vars_stmts_body, _class=self._class)
+                vars_stmts_orelse = get_vars_for_nodes(self, *node.orelse, _class=self._class)
+                vars_orelse = join_body_stmts_into_vars(*vars_stmts_orelse, _class=self._class)
+                vars_stmts_finalbody = get_vars_for_nodes(self, *node.finalbody, _class=self._class)
+                vars_finalbody = join_body_stmts_into_vars(*vars_stmts_finalbody, _class=self._class)
+
+                all_vars_handlers = []
+                for handler in node.handlers:
+                    scope = TempScopeVisitor(ExposedVariables(), is_lhs_target=self.is_lhs_target, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, _class=self._class)
+                    visit_all(scope, handler.type, handler.name)
+                
+                    vars_stmts_handler = get_vars_for_nodes(scope, *handler.body, _class=self._class)
+                    vars_handler = join_body_stmts_into_vars(*vars_stmts_handler, _class=self._class)
+
+                    all_vars_handlers.append(v_merge(scope.variables, vars_handler, _class=self._class))  # TO CHECK: Is this right?
+
+                self.variables = v_merge(self.variables, v_merge(vars_body, h_merge(*all_vars_handlers, vars_orelse), vars_finalbody, _class=self._class), _class=self._class)
+                
+            def visit_Try(self, node: ast.Try):
+                self._visit_try(node)
+
+            def visit_TryStar(self, node):
+                self._visit_try(node)
+
+            def visit_ClassDef(self, class_node: ast.ClassDef):
+                visit_all(self, class_node.bases, class_node.keywords, class_node.decorator_list, getattr(class_node, "type_params", None))
+
+                vars_stmts_body = get_vars_for_nodes(self, *class_node.body, _class=True)
+                vars_body = join_body_stmts_into_vars(*vars_stmts_body, _class=True)  
+
+                self.variables.input_variables |= (vars_body.input_variables - self.variables.output_variables)
+                self.variables.inputs_variables_in_function_in_class |= (vars_body.inputs_variables_in_function_in_class)
+                self.variables.output_variables |= set([class_node.name])
+                self.variables.nonlocal_variables |= vars_body.nonlocal_variables
+                self.variables.global_variables |= vars_body.global_variables
+
 
             def visit_Global(self, global_node):
                 for name in global_node.names:
-                    self.current_tempscope.variables.global_variables.add(name)
+                    self.variables.global_variables.add(name)
 
             def visit_Nonlocal(self, nonlocal_node):
                 for name in nonlocal_node.names:
-                    self.current_tempscope.variables.nonlocal_variables.add(name)
+                    self.variables.nonlocal_variables.add(name)
 
         class ArgumentsVisitor(ast.NodeVisitor):
             """ Util visitor to handle args only """
@@ -325,131 +335,45 @@ class ReactivePythonDagBuilderUtils__():
                 self.expr_scope.visit(node)
 
 
-        class ScopeVisitor(ast.NodeVisitor):
-            def __init__(self, all_tempscope_data):
-                self.all_tempscope_data: Dict[ast.AST, AstNodeData] = all_tempscope_data
-                self.node_to_corresponding_scope = {}
-                self.node_to_containing_scope = {}
-                self.global_scope: GlobalScope = GlobalScope()
-                self.error_scope: ErrorScope = ErrorScope()
-
-            def _get_scope(self, node, include_as_variable=True):  #  -> Tuple[Scope, bool]
-                """Mainly it gets it out of all_tempscope_data... """
-                tempscope_obj = self.all_tempscope_data[node]
-                parent_tempscope = find_tempscope(tempscope_obj.temp_scope, tempscope_obj.node_name, tempscope_obj.is_assignment)
-                if parent_tempscope is None:
-                    print('OK, yes, this happens..')
-                    scope = self.error_scope
-                elif isinstance(parent_tempscope, GlobalTempScope):
-                    scope = self.global_scope
-                else:
-                    scope = self.node_to_corresponding_scope[parent_tempscope.node]
-                if include_as_variable:
-                    self.node_to_containing_scope[node] = scope
-                return scope, tempscope_obj.is_input, tempscope_obj.is_output
-
-            def visit_Name(self, node):
-                scope, is_input, is_output = self._get_scope(node)
-                scope.variables.variables.add(ScopeVarObject(node, is_input, is_output))
-                super().generic_visit(node)
-
-            def visit_arg(self, node):  # TODO ?????????????
-                scope, is_input, is_output = self._get_scope(node)
-                scope.variables.variables.add(ScopeVarObject(node, is_input, is_output))
-                super().generic_visit(node)
-
-            def visit_alias(self, node):  # TODO ?????????????
-                scope, is_input, is_output = self._get_scope(node)
-                scope.variables.import_statements.add(ScopeVarObject(node, is_input, is_output))
-                super().generic_visit(node)
-
-            def visit_FunctionDef(self, node):
-                scope, is_input, is_output = self._get_scope(node)
-                if node not in self.node_to_corresponding_scope:
-                    self.node_to_corresponding_scope[node] = FunctionScope(function_node=node, parent=scope)
-                scope.variables.functions.add(ScopeVarObject(node, is_input, is_output))
-                _add_child(scope, self.node_to_corresponding_scope[node])
-                super().generic_visit(node)
-                # If the self.node_to_corresponding_scope[node].variables.variables whose get_name is func_name, this means a RECURSIVE call is happening! So, REMOVE IT!
-                scope.variables.variables = {var for var in scope.variables.variables if not (var.is_input and get_name(var.node) == node.name)}
-
-            def visit_AsyncFunctionDef(self, node):
-                scope, is_input, is_output = self._get_scope(node)
-                if node not in self.node_to_corresponding_scope:
-                    self.node_to_corresponding_scope[node] = FunctionScope(function_node=node, parent=scope)
-                scope.variables.functions.add(ScopeVarObject(node, is_input, is_output))
-                _add_child(scope, self.node_to_corresponding_scope[node])
-                super().generic_visit(node)
-                # If the self.node_to_corresponding_scope[node].variables.variables whose get_name is func_name, this means a RECURSIVE call is happening! So, REMOVE IT!
-                scope.variables.variables = {var for var in scope.variables.variables if not (var.is_input and get_name(var.node) == node.name)}
-
-            def visit_Lambda(self, node):
-                scope, is_input, is_output = self._get_scope(node, include_as_variable=False)
-                if node not in self.node_to_corresponding_scope:
-                    self.node_to_corresponding_scope[node] = FunctionScope(function_node=node, parent=scope)
-                _add_child(scope, self.node_to_corresponding_scope[node])
-                super().generic_visit(node)
-
-            def visit_With(self, node):
-                scope, is_input, is_output = self._get_scope(node)
-                if node not in self.node_to_corresponding_scope:
-                    self.node_to_corresponding_scope[node] = BlockScope(node=node, parent=scope)
-                _add_child(scope, self.node_to_corresponding_scope[node])
-                super().generic_visit(node)
-            
-            def visit_For(self, node):
-                scope, is_input, is_output = self._get_scope(node)
-                if node not in self.node_to_corresponding_scope:
-                    self.node_to_corresponding_scope[node] = BlockScope(node=node, parent=scope)
-                _add_child(scope, self.node_to_corresponding_scope[node])
-                super().generic_visit(node)
-
-
-            def visit_DictComp(self, comp_node):
-                targets=[comp_node.key, comp_node.value]
-                comprehensions=comp_node.generators
-                visit_all(self, comprehensions)
-                visit_all(self, targets)
-
-            def visit_ListComp(self, comp_node):
-                targets=[comp_node.elt]
-                comprehensions=comp_node.generators
-                visit_all(self, comprehensions)
-                visit_all(self, targets)
-
-            def visit_SetComp(self, comp_node):
-                targets=[comp_node.elt]
-                comprehensions=comp_node.generators
-                visit_all(self, comprehensions)
-                visit_all(self, targets)
-
-            def visit_GeneratorExp(self, comp_node):
-                targets=[comp_node.elt]
-                comprehensions=comp_node.generators
-                visit_all(self, comprehensions)
-                visit_all(self, targets)
-
-            def visit_comprehension(self, node):  # TODO ?????????????
-                scope, is_input, is_output = self._get_scope(node, include_as_variable=False)
-                if node not in self.node_to_corresponding_scope:
-                    self.node_to_corresponding_scope[node] = FunctionScope(function_node=node, parent=scope)
-                _add_child(scope, self.node_to_corresponding_scope[node])
-                super().generic_visit(node)
-
-            def visit_ClassDef(self, node):
-                scope, is_input, is_output = self._get_scope(node)
-                if node not in self.node_to_corresponding_scope:
-                    self.node_to_corresponding_scope[node] = ClassScope(class_node=node, parent=scope)
-                scope.variables.classes.add(ScopeVarObject(node, is_input, is_output))
-                _add_child(scope, self.node_to_corresponding_scope[node])
-
-                super().generic_visit(node)
-
-
         ####################################################################################################
         ######################### HELPER FUNCTIONS ##########################################
         ####################################################################################################
+                
+        def h_merge(*exposed_variables: ExposedVariables):
+            """Merge horizontally, or in Parallel"""
+            result = ExposedVariables()
+            for ev in exposed_variables:
+                result.input_variables |= ev.input_variables
+                result.output_variables |= ev.output_variables
+                result.nonlocal_variables |= ev.nonlocal_variables
+                result.global_variables |= ev.global_variables
+                result.introduced_variables |= ev.introduced_variables
+                result.inputs_variables_in_function_in_class |= ev.inputs_variables_in_function_in_class
+            return result
 
+        def v_merge(*exposed_variables: ExposedVariables, _class=False):
+            """Merge vertically, or in Sequence: The order matters, here!"""
+            result = ExposedVariables()
+            for ev in exposed_variables:
+                result.input_variables |= (ev.input_variables - result.output_variables)
+                result.output_variables |= ev.output_variables
+                result.nonlocal_variables |= ev.nonlocal_variables
+                result.global_variables |= ev.global_variables
+                result.introduced_variables |= ev.introduced_variables
+                if not _class:
+                    result.inputs_variables_in_function_in_class |= (ev.inputs_variables_in_function_in_class - result.output_variables)
+                else:
+                    result.inputs_variables_in_function_in_class |= ev.inputs_variables_in_function_in_class
+            return result
+                
+        def join_body_stmts_into_vars(*stmts: ExposedVariables, _class=False):
+            return v_merge(*stmts, _class=_class)  # CHECK: Is this enough?
+
+        def get_vars_for_nodes(visitor: TempScopeVisitor, *nodes: ast.AST, _class=False):
+            scopes = [TempScopeVisitor(ExposedVariables(), is_lhs_target=visitor.is_lhs_target, is_also_input_of_aug_assign=visitor.is_also_input_of_aug_assign, _class=visitor._class or _class) for _ in nodes]
+            for scope, node in zip(scopes, nodes):
+                scope.visit(node)
+            return [scope.variables for scope in scopes]
 
         def visit_all(visitor, *nodes):
             for node in nodes:
@@ -460,127 +384,22 @@ class ReactivePythonDagBuilderUtils__():
                 else:
                     visitor.visit(node)
 
-
-        def _add_child(parent_scope, child):  # please write 
-            if type(parent_scope) == ClassScope:
-                parent_scope = parent_scope.parent
-            elif type(parent_scope) != ErrorScope :
-                parent_scope.children.append(child) 
-            else: 
-                raise RuntimeError("Error Scope cannot have children")
-            
-
-
-        def find_tempscope(temp_scope, name, is_assignment, global_acceptable=True):
-            """
-            Finds the actual scope containing the variable name, or None if no scope exists
-            """
-            if type(temp_scope) is GlobalTempScope:
-                if not global_acceptable:
-                    return None
-                return temp_scope
-            elif type(temp_scope) is FunctionTempScope:
-                if name in temp_scope.variables.global_variables:
-                    return get_global_scope(temp_scope)
-                elif name in temp_scope.variables.nonlocal_variables:
-                    return find_tempscope(get_parent_scope(temp_scope), name, is_assignment, global_acceptable=False)
-                elif name in temp_scope.variables.assigned_variables:
-                    return temp_scope
-                else:
-                    return find_tempscope(get_parent_scope(temp_scope), name, is_assignment, global_acceptable)
-            elif type(temp_scope) is ClassTempScope:
-                if temp_scope.class_binds_near:
-                    # anything can be in a class scope
-                    return temp_scope
-                elif is_assignment:
-                    return temp_scope
-                else:
-                    return find_tempscope(temp_scope.parent, name, is_assignment, global_acceptable)
-            elif type(temp_scope) is BlockTempScope:
-                if is_assignment:
-                    return find_tempscope(get_parent_scope(temp_scope), name, is_assignment, global_acceptable)
-                elif name in temp_scope.variables.global_variables:
-                    return get_global_scope(temp_scope)
-                elif name in temp_scope.variables.nonlocal_variables:
-                    return find_tempscope(get_parent_scope(temp_scope), name, is_assignment, global_acceptable=False)
-                elif name in temp_scope.variables.assigned_variables:
-                    return temp_scope
-                else:
-                    return find_tempscope(get_parent_scope(temp_scope), name, is_assignment, global_acceptable)
-            else:
-                raise RuntimeError("Unknown scope type")
-
-        def get_global_scope(temp_scope):
-            if type(temp_scope) is GlobalTempScope:
-                return temp_scope
-            elif type(temp_scope) is FunctionTempScope:
-                return get_global_scope(get_parent_scope(temp_scope)) 
-            elif type(temp_scope) is BlockTempScope:
-                return get_global_scope(get_parent_scope(temp_scope)) 
-            elif type(temp_scope) is ClassTempScope:
-                return find_tempscope(get_parent_scope(temp_scope), temp_scope, is_assignment=False) # TODO: is_assignment is MADE UP ???
-
-        def get_parent_scope(intermediate_scope):
-            parent = intermediate_scope.parent
-            while isinstance(parent, ClassTempScope):
-                parent = parent.parent
-            return parent
-
-
-        def get_name(node):
-            if type(node) in [ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef]:
-                return node.name
-            elif type(node) is ast.Name:
-                return node.id
-            elif type(node) is ast.alias:
-                return node.asname if node.asname is not None else node.name
-            else:
-                raise RuntimeError("Unknown node type")
-
-
-        ####################################################################################################
-        ######################### EXTRACT INPUT AND OUTPUT VARS:  ##########################################
-        ####################################################################################################
-
-        @dataclasses.dataclass
-        class ScopeInfo:
-            tree: Any
-            global_scope: GlobalScope
-            error_scope: Any
-            node_to_containing_scope: Any = None
-
-        def annotate(tree, class_binds_near=False) -> ScopeInfo:
-            """This is actually the main function 
-            """
-            all_tempscope_data = {}
-            annotator = TempScopeVisitor(GlobalTempScope(), all_tempscope_data, class_binds_near=class_binds_near)
+        def annotate(tree: ast.AST):
+            annotator = TempScopeVisitor(ExposedVariables())
             annotator.visit(tree)
+            return annotator.variables
 
-            pull_scopes = ScopeVisitor(all_tempscope_data)
-            pull_scopes.visit(tree)
-            return ScopeInfo(tree, pull_scopes.global_scope, pull_scopes.error_scope, None) # pull_scopes.node_to_containing_scope)
-
-        def get_input_variables_for(scope_info: ScopeInfo):
+        def get_input_variables_for(annotated_variables: ExposedVariables):
             """
             Returns a list of all the variables that are referenced in the given scope
             """
-            globvars = scope_info.global_scope.variables
-            errs = scope_info.error_scope.variables
-            global_names = {get_name(scope_info_obj.node) for scope_info_obj in (globvars.variables | globvars.functions | globvars.classes | globvars.import_statements) if scope_info_obj.is_input}
-            error_names = {get_name(scope_info_obj.node) for scope_info_obj in (errs.variables | errs.functions | errs.classes | errs.import_statements) if scope_info_obj.is_input}
+            return annotated_variables.input_variables | annotated_variables.inputs_variables_in_function_in_class, set([])
 
-            return global_names, error_names
-
-        def get_output_variables_for(scope_info: ScopeInfo):
+        def get_output_variables_for(annotated_variables):
             """
             Returns a list of all the variables that are referenced in the given scope
             """
-            globvars = scope_info.global_scope.variables
-            errs = scope_info.error_scope.variables
-            global_names = {get_name(scope_info_obj.node) for scope_info_obj in (globvars.variables | globvars.functions | globvars.classes | globvars.import_statements) if scope_info_obj.is_output}
-            error_names = {get_name(scope_info_obj.node) for scope_info_obj in (errs.variables | errs.functions | errs.classes | errs.import_statements) if scope_info_obj.is_output}
-
-            return global_names, error_names
+            return annotated_variables.output_variables, set([])
 
         reserved_terms = {
             "False", "def", "if", "raise", "None", "del", "import", "return", "True", "elif", "in", "try", "and", "else", "is", "while",
@@ -627,10 +446,10 @@ class ReactivePythonDagBuilderUtils__():
 
             for node in ast_nodes.body:
                 annotated_node = annotate(node)
-                inputs, error_inputs = get_input_variables_for(annotated_node)
-                inputs, error_inputs = filter_reserved_terms(inputs), filter_reserved_terms(error_inputs)
-                outputs, error_outputs = get_output_variables_for(annotated_node)
-                outputs, error_outputs = filter_reserved_terms(outputs), filter_reserved_terms(error_outputs)
+                inputs_, error_inputs = get_input_variables_for(annotated_node)
+                inputs_, error_inputs = filter_reserved_terms(inputs_), filter_reserved_terms(error_inputs)
+                outputs_, error_outputs = get_output_variables_for(annotated_node)
+                outputs_, error_outputs = filter_reserved_terms(outputs_), filter_reserved_terms(error_outputs)
                 result.append(DagNode(
                     lineno=node.lineno-1,
                     end_lineno=node.end_lineno-1,
@@ -638,8 +457,8 @@ class ReactivePythonDagBuilderUtils__():
                     # text="acapo".join(splitted_code[node.lineno-1:node.end_lineno]) if splitted_code else "",
                     # Recompute code by ast-dumping the node:
                     text=ast.unparse(node),
-                    input_vars=inputs,
-                    output_vars=outputs,
+                    input_vars=inputs_,
+                    output_vars=outputs_,
                     errored_input_vars=error_inputs,
                     errored_output_vars=error_outputs,
                 ))
@@ -746,7 +565,7 @@ class ReactivePythonDagBuilderUtils__():
             return graph
 
 
-        def dagnodes_to_dag(dag_nodes):
+        def dagnodes_to_dag(dag_nodes, add_out_of_order=False, add_starting_node=False):
             # Initialize a graph with all the dag_nodes:
             graph = DiGraph()
             for i, node in enumerate(dag_nodes):
@@ -780,7 +599,7 @@ class ReactivePythonDagBuilderUtils__():
                                 graph[relevant_output][node_index]['vars'].append(var)
                             else:
                                 graph.add_edge(relevant_output, node_index, vars=[var])
-                        elif relevant_output is None and len(outputs_for_each_var[var]) == 1 and list(outputs_for_each_var[var])[0] != node_index:
+                        elif add_out_of_order and relevant_output is None and len(outputs_for_each_var[var]) == 1 and list(outputs_for_each_var[var])[0] != node_index:
                             # If there are no prev nodes that output the var, BUT there is ONLY ONE node that output it ever, THEN you can CONSIDER this for defining an out-of-order definition- 
                             # BUT, defer it to when you can check that you are not creating CYCLES!
                             out_of_order_edges.append((list(outputs_for_each_var[var])[0], node_index, var))
@@ -794,10 +613,11 @@ class ReactivePythonDagBuilderUtils__():
                         graph.add_edge(edge[0], edge[1], vars=[edge[2]])
 
             # Add a single node "_START_" that has an edge pointing to ALL THE NODES THAT HAVE NO PARENTS
-            graph.add_node("_START_", stale=False, needstobestale=False, text="_START_")
-            for i, node in enumerate(dag_nodes):
-                if len(list(graph.predecessors(i))) == 0:
-                    graph.add_edge("_START_", i, vars=[])
+            if add_starting_node:
+                graph.add_node("_START_", stale=False, needstobestale=False, text="_START_")
+                for i, node in enumerate(dag_nodes):
+                    if len(list(graph.predecessors(i))) == 0:
+                        graph.add_edge("_START_", i, vars=[])
 
             return graph
 
@@ -1038,7 +858,7 @@ class ReactivePythonDagBuilderUtils__():
         
         try:
             dagnodes = self.ast_to_dagnodes(ast_tree, code)
-            new_dag = self.dagnodes_to_dag(dagnodes)
+            new_dag = self.dagnodes_to_dag(dagnodes, add_out_of_order=True, add_starting_node=True)
             new_dag = self.fuse_nodes(new_dag, code)
                 
             if self.current_dag is not None:
@@ -2418,9 +2238,5 @@ class ReactivePythonDagBuilderUtils__():
         return DiGraph, topological_sort, has_path
 
 reactive_python_dag_builder_utils__ = ReactivePythonDagBuilderUtils__()
-
-
-
-
 
 `;
