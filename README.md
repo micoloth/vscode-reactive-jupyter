@@ -12,7 +12,7 @@
 
 
 
-A simple [Visual Studio Code](https://code.visualstudio.com/) extension to add support for **Reactive Execution** of a Python script.
+An experimental [Visual Studio Code](https://code.visualstudio.com/) extension to add support for **Reactive Execution** of a Python script.
 
 
 This extension performs simple Static Code Analysis to find dependencies between the various statements in a Python script. When you modify a line, it will be marked as Stale together with all the lines that depend on it.
@@ -58,17 +58,17 @@ You can execute code statements using the CodeLenses that appear over the code, 
 
 Currently, `reactive-jupyter` works by performing simple Static Code Analysis of a Python script to find dependencies between the various statements.
 
-Because of the very imperative nature of the Python language, it is impossible to reliably capture the effects of **impure** statements, i.e. statements that **modify a variable in place**.
+Because of the very imperative nature of the Python language, it's impossible to capture the effects of **impure** statements, i.e. statements that **modify a variable in place**.
 
-These are not handled by this extension, and will not trigger the execution of the statements that depend on them.
+These are ***NOT*** handled by this extension, and will not trigger the execution of the statements that depend on them.
 
 By default, try to write your script in a Functional style:
- - Don't reassign variable with the same name
- - Only write **pure** functions.
+ - Don't reassign variables with the same name
+ - Only use **pure** functions.
 
 This makes your code easier to reason about, for humans as well as for computers.
 
-Still, some impure statements, like `mylist.append(1)` or `model.train()`, are inevitable. 
+Still, some impure statements, like `mylist.append(x)` or `model.train()`, are inevitable. 
 
 As a workaround for this limitation, you can do 2 things:
  - Always wrap your impure statements into a function which returns the mutated object in the end, and reassign the variable. For example:
