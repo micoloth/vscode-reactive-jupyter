@@ -282,10 +282,15 @@ class ReactivePythonDagBuilderUtils__():
                 all_vars_handlers = []
                 for handler in node.handlers:
                     scope = TempScopeVisitor(ExposedVariables(), is_lhs_target=self.is_lhs_target, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, _class=self._class)
-                    visit_all(scope, handler.type, handler.name)
+                    visit_all(scope, handler.type)
                 
                     vars_stmts_handler = get_vars_for_nodes(scope, *handler.body, _class=self._class)
                     vars_handler = join_body_stmts_into_vars(*vars_stmts_handler, _class=self._class)
+
+                    # Remove the handler.name from the input variables AND output variables, by hand:
+                    vars_handler.input_variables -= set([handler.name])
+                    vars_handler.output_variables -= set([handler.name])
+                    vars_handler.inputs_variables_in_function_in_class -= set([handler.name])
 
                     all_vars_handlers.append(v_merge(scope.variables, vars_handler, _class=self._class))  # TO CHECK: Is this right?
 
@@ -2238,5 +2243,7 @@ class ReactivePythonDagBuilderUtils__():
         return DiGraph, topological_sort, has_path
 
 reactive_python_dag_builder_utils__ = ReactivePythonDagBuilderUtils__()
+
+
 
 `;
