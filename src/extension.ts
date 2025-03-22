@@ -1210,6 +1210,30 @@ export function activate(context: ExtensionContext) {
 
     defineAllCommands(context, output, globals);
 
+
+
+    // ///////////// LAST COMMAND:
+    const disposable = vscode.commands.registerCommand('reactive-jupyter.hello', async () => {
+        try {
+          // Initialize the WASM module. This loads the WASM file.
+          // Set the public path manually before loading the WASM module.
+          globalThis.__webpack_public_path__ = vscode.Uri.joinPath(context.extensionUri, 'wasm').toString() + '/';
+          
+          // Dynamically import the WASM module.
+          const { default: init, to_uppercase } = await import('../wasm/wasm_vscode_reactive_jupyter.js');
+        
+
+          await init();
+          // Call the Rust function, which returns the uppercase version of the input.
+          const result = to_uppercase('hello from VS Code!');
+          // Show the result in an information message.
+          vscode.window.showInformationMessage(`WASM says: ${result}`);
+        } catch (error) {
+          vscode.window.showErrorMessage(`Error: ${error}`);
+        }
+      });
+      context.subscriptions.push(disposable);
+
 }
 
 
