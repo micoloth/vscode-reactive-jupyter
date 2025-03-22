@@ -62,3 +62,8 @@ l10n/
 out
 dist
 secrets.txt
+
+# Added by cargo
+
+/target
+wasm-vscode-reactive-jupyter/target

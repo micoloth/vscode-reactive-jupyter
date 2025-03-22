@@ -1,0 +1,11 @@
+[package]
+name = "wasm-vscode-reactive-jupyter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wasm-bindgen = "0.2"
+
+
+[lib]
+crate-type = ["cdylib", "rlib"]

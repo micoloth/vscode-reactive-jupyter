@@ -86,3 +86,21 @@ chmod +x ./scriptt.sh
  - DONE Small typo in Readme
  - DONE Feature: Less bright colors
  - DONE Feature: Setting to remove Codelenses
+
+
+
+
+
+
+
+############################ RUST:
+
+
+cargo init
+cargo new --lib wasm-vscode-reactive-jupyter
+
+cargo install wasm-pack
+
+cd /Users/michele.tasca/my_stuff/coding/python/vscode-reactive-jupyter/wasm-vscode-reactive-jupyter 
+wasm-pack build --target web 
+cd /Users/michele.tasca/my_stuff/coding/python/vscode-reactive-jupyter
