@@ -503,7 +503,7 @@ function isThereANewNotebook(oldNotebooks: readonly CachedNotebookDocument[], ne
 
 async function getNotebookAndKernel(globals: Map<string, string>, editor: TextEditor, notify: Boolean = false): Promise<[NotebookDocument, Kernel] | undefined> {
     let notebook_uri = globals.get(editorToIWKey(editor.document.uri.toString()));
-    let iWsWCorrectUri = vscode.workspace.notebookDocuments.filter((doc) => doc.uri.toString() === notebook_uri);
+    let iWsWCorrectUri = vscode.workspace.notebookDocuments.filter((doc: NotebookDocument) => doc.uri.toString() === notebook_uri);
     if (iWsWCorrectUri.length === 0) {
         if (notify) { window.showErrorMessage("Reactive Jupyter: Lost connection to this editor's Interactive Window. Please initialize it with the command: 'Initialize Reactive Jupyter' or the CodeLens at the top ") }
         return undefined;
@@ -545,6 +545,7 @@ async function initializeInteractiveWindowAndKernel(globals: Map<string, string>
 
         const notebookDocuments: CachedNotebookDocument[] = vscode.workspace.notebookDocuments.map(toMyNotebookDocument);
         // Wreck some Havoc: This should ALWAYS RESULT IN A RUNNING KERNEL, AND ALSO A NEW CELL SOMEWHERE, EVENTUALLY. This is the idea, at least...
+        await vscode.commands.executeCommand('jupyter.execSelectionInteractive', autoreloadText);
         await vscode.commands.executeCommand('jupyter.execSelectionInteractive', welcomeText);
         // Other things I tried:
         // let resIW = await vscode.commands.executeCommand('jupyter.createnewinteractive') as Uri;
@@ -650,6 +651,10 @@ async function preparePythonEnvForReactivePython(editor: TextEditor, globals: Ma
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // PYTHON COMMANDS AND SNIPPETS
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+const autoreloadText = `
+%load_ext autoreload
+%autoreload 2`
 
 const welcomeText = "# Welcome to Reactive Jupyter";
 
@@ -949,7 +954,7 @@ export class CellCodelensProvider implements vscode.CodeLensProvider {
     public provideCodeLenses(
         document: vscode.TextDocument,
         token: vscode.CancellationToken
-    ): vscode.CodeLens[] | Thenable<vscode.CodeLens[]> {
+    ): vscode.CodeLens[] | PromiseLike<vscode.CodeLens[]> {
         let editor = vscode.window.activeTextEditor;
         // Get the "reactiveJupyter.showCodeLenses" extension setting is True:
         let showCodeLenses = vscode.workspace.getConfiguration('reactiveJupyter').get<boolean>('showCodeLenses');
@@ -990,7 +995,7 @@ export class InitialCodelensProvider implements vscode.CodeLensProvider {
     public provideCodeLenses(
         document: vscode.TextDocument,
         token: vscode.CancellationToken
-    ): vscode.CodeLens[] | Thenable<vscode.CodeLens[]> {
+    ): vscode.CodeLens[] | PromiseLike<vscode.CodeLens[]> {
         let editor = vscode.window.activeTextEditor;
         if (editor && editor.document.uri == document.uri) {
             let codeLenses = [
@@ -1136,7 +1141,7 @@ function getOnDidChangeTextDocumentAction(globals: Map<string, string>, output: 
             // Set the state to rebuildNeeded:
             updateEditingState(globals, editor, EditingState.rebuildNeeded, timestamp);
             // Check if ANY of the contentChanges's has length > CONTENTCHANGE_LENGHT_ABOVE_WHICH_ALWAYS_TRIGGER_REBUILD:
-            let should_rebuild_immediatly = event.contentChanges.some((change) => change.text.length > CONTENTCHANGE_LENGHT_ABOVE_WHICH_ALWAYS_TRIGGER_REBUILD);
+            let should_rebuild_immediatly = event.contentChanges.some((change: vscode.TextDocumentContentChangeEvent) => change.text.length > CONTENTCHANGE_LENGHT_ABOVE_WHICH_ALWAYS_TRIGGER_REBUILD);
             await new Promise((resolve) => setTimeout(resolve, should_rebuild_immediatly ? 50 : 1000));
             // Get latest timestamp:
             let [state, last_timestamp] = getEditingState(globals, editor);
@@ -1247,10 +1252,52 @@ async function defineAllCommands(context: ExtensionContext, output: OutputChanne
     workspace.onDidChangeTextDocument( getOnDidChangeTextDocumentAction(globals, output), null, Context.subscriptions );
     window.onDidChangeActiveTextEditor( getOnDidChangeActiveTextEditorAction(globals, output), null, Context.subscriptions );
     window.onDidChangeTextEditorSelection( getOnDidChangeTextEditorSelectionAction(globals, output, codelensProvider), null, Context.subscriptions );
+
+    ///////// Wrap In Block: ///////////////////////
+
+    context.subscriptions.push( vscode.commands.registerCommand( "reactive-jupyter.wrap-in-reactive-block", wrapInBlock));
+
 }
 
 
 
+
+const wrapInBlock = async () => {
+        // Get the active text editor
+        let editor = window.activeTextEditor;
+        if (editor) {
+            // Collect the selected lines' text
+            let selectedText = "";
+            for (let lineNum = editor.selection.start.line; lineNum <= editor.selection.end.line; lineNum++) {
+                selectedText += editor.document.lineAt(lineNum).text + "\n";
+            }
+
+            // Wrap the selected text in reactive block markers
+            let wrappedText = "# % [\n" + selectedText + "# % ]\n";
+
+            // Create a range covering the selected lines
+            let replaceRange = new Range(
+                new Position(editor.selection.start.line, 0),
+                new Position(editor.selection.end.line + 1, 0)
+            );
+
+            // Replace the selected lines with the wrapped text
+            editor.edit((editBuilder: vscode.TextEditorEdit) => {
+                editBuilder.replace(replaceRange, wrappedText);
+            });
+
+            // Adjust the selection to the newly wrapped block
+            let newStart = new Position(
+                editor.selection.start.line + 1,
+                editor.selection.start.character
+            );
+            let newEnd = new Position(
+                editor.selection.end.line + 1,
+                editor.selection.end.character
+            );
+            editor.selection = new Selection(newStart, newEnd);
+        }
+    };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // NOTES
