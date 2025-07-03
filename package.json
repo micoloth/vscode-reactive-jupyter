@@ -169,6 +169,11 @@
 				"command": "reactive-jupyter.initialize-and-sync-current",
 				"title": "Run current block",
 				"category": "Reactive Jupyter"
+			},
+			{
+				"command": "reactive-jupyter.wrap-in-reactive-block",
+				"title": "Wrap in Block",
+				"category": "Reactive Jupyter"
 			}
 		],
 		"keybindings": [
@@ -220,7 +225,6 @@
 				}
 			}
 		}
-				
 	},
 	"scripts": {
 		"compile": "webpack",
@@ -243,6 +247,7 @@
 		"@vscode/jupyter-extension": "^1.1.0",
 		"@vscode/test-web": "^0.0.22",
 		"assert": "^2.0.0",
+		"esbuild": "^0.25.5",
 		"eslint": "^8.26.0",
 		"mocha": "^9.2.0",
 		"process": "^0.11.10",
@@ -260,5 +265,10 @@
 		"semver": "^7.6.0",
 		"text-encoding": "^0.7.0",
 		"uuid": "^9.0.1"
+	},
+	"__metadata": {
+		"installedTimestamp": 1751471118396,
+		"targetPlatform": "undefined",
+		"size": 830391
 	}
 }

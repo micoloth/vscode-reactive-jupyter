@@ -16,3 +16,6 @@ tests/
 commands.txt
 node_modules
 webpack.config.js
+scripts.txt 
+secrets.txt
+minified.js
