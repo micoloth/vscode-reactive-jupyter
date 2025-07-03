@@ -545,6 +545,7 @@ async function initializeInteractiveWindowAndKernel(globals: Map<string, string>
 
         const notebookDocuments: CachedNotebookDocument[] = vscode.workspace.notebookDocuments.map(toMyNotebookDocument);
         // Wreck some Havoc: This should ALWAYS RESULT IN A RUNNING KERNEL, AND ALSO A NEW CELL SOMEWHERE, EVENTUALLY. This is the idea, at least...
+        await vscode.commands.executeCommand('jupyter.execSelectionInteractive', autoreloadText);
         await vscode.commands.executeCommand('jupyter.execSelectionInteractive', welcomeText);
         // Other things I tried:
         // let resIW = await vscode.commands.executeCommand('jupyter.createnewinteractive') as Uri;
@@ -650,6 +651,10 @@ async function preparePythonEnvForReactivePython(editor: TextEditor, globals: Ma
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // PYTHON COMMANDS AND SNIPPETS
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+const autoreloadText = `
+%load_ext autoreload
+%autoreload 2`
 
 const welcomeText = "# Welcome to Reactive Jupyter";
 
