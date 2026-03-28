@@ -1,5 +1,12 @@
 
 
+############################################ RUN ON UBUNTU: (otherwise vscode is very broken):
+
+
+npm run compile && code --extensionDevelopmentPath="$PWD" /tmp/test-extension-debug
+
+############################################
+
 git config user.name "mike-tasca"
 git config user.email "mic.tasca@gmail.com"
 
