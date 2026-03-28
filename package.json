@@ -111,6 +111,10 @@
 		],
 		"commands": [
 			{
+				"command": "reactive-jupyter.hello",
+				"title": "WASM Uppercase: Say Hello"
+			},
+			{
 				"command": "jupyterKernelExecution.listKernels",
 				"title": "Execute code against a Python Kernel",
 				"category": "Jupyter Kernel API"
