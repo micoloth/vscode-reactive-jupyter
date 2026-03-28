@@ -1,4 +1,6 @@
 
+## 0.5.0 - 2026-03-28
+Fixed bugs about Tab focusing and kernel crashing. Refactored ast visitor to be slightly faster
 
 ## 0.4.4 - 2025-07-03
 * Add the Autoreload script at the beginning of each interactive session
