@@ -667,6 +667,7 @@ class ReactivePythonDagBuilderUtils__():
             """
 
             new_node_to_old: Dict[int, ast.AST] = {} # key is the new node, value is the old node that corresponds to it
+            already_matched_old_nodes: Set[int] = set()  # Track which old nodes have been matched to prevent double-matching
 
             # Iterate on the new_dag in topological order:
             for new_node in topological_sort(new_dag):
@@ -690,10 +691,25 @@ class ReactivePythonDagBuilderUtils__():
                 # Among all the nodes in old_graph that are Successors of All nodes in parents_in_old_dag,
                 # Find the one that is the same as the new_node: 
                 all_candidates_in_old = set.intersection(*[set(old_dag.successors(parent)) for parent in parents_in_old_dag])
-                for candidate in all_candidates_in_old:
-                    if ast_equality(old_dag.nodes[candidate]['tree_ast'], new_dag.nodes[new_node]['tree_ast']):
-                        new_node_to_old[new_node] = candidate
-                        break
+                
+                # Filter out candidates that have already been matched to other new nodes
+                available_candidates = [c for c in all_candidates_in_old if c not in already_matched_old_nodes]
+                
+                # Find all candidates with matching AST
+                matching_candidates = [
+                    candidate for candidate in available_candidates 
+                    if ast_equality(old_dag.nodes[candidate]['tree_ast'], new_dag.nodes[new_node]['tree_ast'])
+                ]
+                
+                # If there are multiple matches, prefer the one with the closest line number
+                if len(matching_candidates) > 1:
+                    new_lineno = new_dag.nodes[new_node].get('lineno', 0)
+                    matching_candidates.sort(key=lambda c: abs(old_dag.nodes[c].get('lineno', 0) - new_lineno))
+                
+                if matching_candidates:
+                    best_match = matching_candidates[0]
+                    new_node_to_old[new_node] = best_match
+                    already_matched_old_nodes.add(best_match)
                 
                 # If there is no matching node in the old_dag, then needs to be stale and it's stale:
                 if new_node_to_old.get(new_node) is None:
