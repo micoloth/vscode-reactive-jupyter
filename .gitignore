@@ -62,3 +62,6 @@ l10n/
 out
 dist
 secrets.txt
+
+wasm-vscode-reactive-jupyter
+minified.js
