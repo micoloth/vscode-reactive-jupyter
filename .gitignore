@@ -65,3 +65,7 @@ secrets.txt
 
 wasm-vscode-reactive-jupyter
 minified.js
+# Added by cargo
+
+/target
+wasm-vscode-reactive-jupyter/target
