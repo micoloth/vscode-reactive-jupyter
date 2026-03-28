@@ -118,8 +118,27 @@ async function executeCodeInInteractiveWindow(
     text: string,
     notebook: NotebookDocument,
     output: OutputChannel | null,
+    targetTextDocument: vscode.TextDocument | undefined = undefined,
+    targetViewColumn: ViewColumn | undefined = undefined, // The original viewColumn where the editor was - ensures we open in the SAME tab group
 ): Promise<IWExecutionResult> {
     // Currently returns an IWExecutionResult. TODO: Rethink if you need something more...
+
+    // IMPORTANT: jupyter.execSelectionInteractive uses the ACTIVE TEXT EDITOR to determine which 
+    // interactive window to use (when interactiveWindow.creationMode is perFile).
+    // So we need to ensure the correct text editor is active before executing.
+    // By specifying viewColumn, we ensure it opens in the ORIGINAL tab group (not a new one if user moved away).
+    if (targetTextDocument) {
+        try {
+            await window.showTextDocument(targetTextDocument, { 
+                viewColumn: targetViewColumn, 
+                preserveFocus: false, // Need to actually take focus for jupyter.execSelectionInteractive to work
+                preview: false 
+            });
+        } catch (e) {
+            console.log('Reactive Jupyter: Failed to set active text editor before execution:', e);
+            // Continue anyway - maybe it will still work
+        }
+    }
 
     await vscode.commands.executeCommand('jupyter.execSelectionInteractive', text);
     // OTHER THINGS I TRIED:
@@ -230,7 +249,9 @@ async function safeExecuteCodeInInteractiveWindow(
     output: OutputChannel | null,
     globals: Map<string, string>,
     expected_initial_state: KernelState = KernelState.extension_available,
-    return_to_initial_state: boolean = true
+    return_to_initial_state: boolean = true,
+    targetTextDocument: vscode.TextDocument | undefined = undefined,
+    targetViewColumn: ViewColumn | undefined = undefined, // The original viewColumn - ensures we open in the SAME tab group
 ) {
     displayInitializationMessageIfNeeded(globals, editor);
     if (getKernelState(globals, editor) !== expected_initial_state) { return; }
@@ -243,8 +264,10 @@ async function safeExecuteCodeInInteractiveWindow(
         return;
     }
     let [notebook, kernel] = notebookAndKernel;
+    
     updateKernelState(globals, editor, KernelState.explicit_execution_started);
-    const result = await executeCodeInInteractiveWindow(command, notebook, output);
+    // Pass the target text document + viewColumn so the execution happens in the correct interactive window
+    const result = await executeCodeInInteractiveWindow(command, notebook, output, targetTextDocument, targetViewColumn);
     if (result == IWExecutionResult.NotebookClosed) {
         window.showErrorMessage("Reactive Jupyter: Lost Connection to this editor's Notebook. Please initialize the extension with the command 'Initialize Reactive Jupyter' or the CodeLens at the top");
         updateKernelState(globals, editor, KernelState.initializable_messaged);
@@ -269,6 +292,13 @@ async function queueComputation(
     globals: Map<string, string>,
     output: OutputChannel,
 ) {
+    // IMPORTANT: Capture the text document AND viewColumn at queue time. 
+    // jupyter.execSelectionInteractive uses the ACTIVE TEXT EDITOR to determine which interactive window to use
+    // (when interactiveWindow.creationMode is perFile). So we need to refocus this editor before each execution.
+    // By also capturing viewColumn, we ensure showTextDocument opens it in the SAME tab group (not a new one).
+    const queueTargetTextDocument = activeTextEditor.document;
+    const queueTargetViewColumn = activeTextEditor.viewColumn;
+    
     if (current_ranges) {
         let said_dependsonotherstalecode_message = false;
         for (let range of current_ranges) {
@@ -283,7 +313,22 @@ async function queueComputation(
                 continue;
             }
 
-            let res = await safeExecuteCodeInInteractiveWindow(range.text, activeTextEditor, output, globals);
+            // Check if the target document is still open before each execution
+            if (queueTargetTextDocument.isClosed) {
+                window.showErrorMessage('Reactive Jupyter: The target Python file was closed during queue execution. Aborting remaining commands.');
+                break;
+            }
+
+            let res = await safeExecuteCodeInInteractiveWindow(
+                range.text, 
+                activeTextEditor, 
+                output, 
+                globals,
+                KernelState.extension_available,
+                true,
+                queueTargetTextDocument,  // Pass the captured text document to ensure all commands go to the same interactive window
+                queueTargetViewColumn     // Pass the captured viewColumn to ensure it opens in the SAME tab group
+            );
             if ( res != IWExecutionResult.Succeeded ) { break; }
 
             const update_result = await safeExecuteCodeInKernel(getSyncRangeCommand(range), activeTextEditor, output, globals);
