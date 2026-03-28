@@ -15,7 +15,7 @@ const webpack = require('webpack');
 /** @type WebpackConfig */
 const webExtensionConfig = {
 	mode: 'none', // this leaves the source code as close as possible to the original (when packaging we set this to 'production')
-	target: 'webworker', // extensions run in a webworker context
+	target: 'node', // VS Code desktop extensions run in Node.js
 	entry: {
 		extension: './src/extension.ts', // source of the web extension main file
 	},
@@ -25,17 +25,14 @@ const webExtensionConfig = {
 		libraryTarget: 'commonjs',
 	},
 	resolve: {
-		mainFields: ['browser', 'module', 'main'], // look for `browser` entry point in imported node modules
+		mainFields: ['module', 'main'], // look for `module` entry point in imported node modules
 		extensions: ['.ts', '.js'], // support ts-files and js-files
 		alias: {
 			// provides alternate implementation for node module and source files
 		},
-		fallback: {
-			// Webpack 5 no longer polyfills Node.js core modules automatically.
-			// see https://webpack.js.org/configuration/resolve/#resolvefallback
-			// for the list of Node.js core module polyfills.
-			assert: require.resolve('assert'),
-		},
+	},
+	experiments: {
+		asyncWebAssembly: true, // Enable async WASM loading
 	},
 	module: {
 		rules: [
@@ -57,6 +54,8 @@ const webExtensionConfig = {
 	],
 	externals: {
 		vscode: 'commonjs vscode', // ignored because it doesn't exist
+		fs: 'commonjs fs',
+		path: 'commonjs path',
 	},
 	performance: {
 		hints: false,

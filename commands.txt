@@ -113,3 +113,7 @@ cargo install wasm-pack
 cd /Users/michele.tasca/my_stuff/coding/python/vscode-reactive-jupyter/wasm-vscode-reactive-jupyter 
 wasm-pack build --target web 
 cd /Users/michele.tasca/my_stuff/coding/python/vscode-reactive-jupyter
+
+
+
+npm run compile && code --extensionDevelopmentPath="$PWD" /tmp/test-extension-debug

@@ -1248,6 +1248,18 @@ const Context = new Proxy<typeof currentContext>(currentContext, handler);
 export const globals: Map<string, string> = new Map();
 
 export function activate(context: ExtensionContext) {
+    // ///////////// WASM COMMAND (register early, before Jupyter check):
+    const disposable = vscode.commands.registerCommand('reactive-jupyter.hello', async () => {
+        try {
+            const wasmModule = await loadWasm(context);
+            const result = wasmModule.to_uppercase('hello from VS Code!');
+            vscode.window.showInformationMessage(`WASM says: ${result}`);
+        } catch (error) {
+            vscode.window.showErrorMessage(`Error: ${error}`);
+        }
+    });
+    context.subscriptions.push(disposable);
+
     const jupyterExt = extensions.getExtension<Jupyter>('ms-toolsai.jupyter');
     if (!jupyterExt) {
         throw new Error('The Jupyter Extension not installed. Please install it and restart VSCode.');
@@ -1261,24 +1273,6 @@ export function activate(context: ExtensionContext) {
     currentContext = context as typeof currentContext;
 
     defineAllCommands(context, output, globals);
-
-
-
-    // ///////////// LAST COMMAND:
-    const disposable = vscode.commands.registerCommand('reactive-jupyter.hello', async () => {
-        try {
-                    const wasmModule = await loadWasm(context);
-        //   const { default: init, to_uppercase } = wasmModule;
-        //   await init();
-        //   const result = to_uppercase('hello from VS Code!');
-        //   vscode.window.showInformationMessage(`WASM says: ${result}`);
-        } catch (error) {
-          vscode.window.showErrorMessage(`Error: ${error}`);
-        }
-      });
-      context.subscriptions.push(disposable);
-
-
 }
 
 

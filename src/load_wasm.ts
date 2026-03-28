@@ -2,9 +2,7 @@
 import * as vscode from 'vscode';
 
 export async function loadWasm(context: vscode.ExtensionContext) {
-  // Set the public path manually before loading the WASM module.
-  globalThis.__webpack_public_path__ = vscode.Uri.joinPath(context.extensionUri, 'wasm').toString() + '/';
-  
-  // Now perform the dynamic import.
-  return await import('../wasm/wasm_vscode_reactive_jupyter.js');
+  // The bundler target auto-initializes the WASM when imported
+  const wasmModule = await import('../wasm-vscode-reactive-jupyter/pkg/wasm_vscode_reactive_jupyter.js');
+  return wasmModule;
 }
