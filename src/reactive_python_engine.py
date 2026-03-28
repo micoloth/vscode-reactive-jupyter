@@ -58,355 +58,10 @@ class ReactivePythonDagBuilderUtils__():
             introduced_variables: Set[str] = dataclasses.field(default_factory=set) # These are the params in a function, or the target n a For or a With or exception, or even the variables in a class
             inputs_variables_in_function_in_class: Set[str] = dataclasses.field(default_factory=set)  # These are the variables that are used by the body of a function that is inside a class
 
+        # ==========================================================================================================
+        # HELPER FUNCTIONS FOR MERGING EXPOSED VARIABLES
+        # ==========================================================================================================
 
-        class TempScopeVisitor(ast.NodeVisitor):
-            def __init__(self, variables: ExposedVariables, is_lhs_target=False, is_also_input_of_aug_assign=False, _class=False):
-                """ Not how it receives 'variables' by REFERENCE !! """
-                # self.node: ast.AST = node
-                # self.parent: "TempScope" = parent
-                self.variables: ExposedVariables = variables  # dataclasses.field(default_factory=ExposedVariables)
-                self.is_lhs_target = is_lhs_target
-                self.is_also_input_of_aug_assign = is_also_input_of_aug_assign
-                self._class = _class
-
-            def visit_Name(self, name_node, ):
-                is_input = type(name_node.ctx) is ast.Load or self.is_also_input_of_aug_assign or type(name_node.ctx) is ast.Del
-                is_output = self.is_lhs_target or type(name_node.ctx) is ast.Store
-                # Note: ast.Del context means we're deleting a variable - it's an input (referencing existing var), not an output
-                # is_introduction = # TODO
-
-                if is_input and not name_node.id in self.variables.output_variables:  
-                    # TODO: This is an attempt to fix the problem of "k:=x" within an expression.
-                    # it's NOT OBVIOUS that it doesn't break anything !!
-                    self.variables.input_variables.add(name_node.id)
-                if is_output:
-                    self.variables.output_variables.add(name_node.id)
-
-            def visit_Subscript(self, subscr_node):  # HERE we go!
-                if type(subscr_node.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-                    lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, _class=self._class)
-                    lhs_visitor.visit(subscr_node.value)
-                elif type(subscr_node.ctx) is ast.Load:
-                    self.visit(subscr_node.value)
-                else:
-                    raise RuntimeError("Unsupported node type: {name_node}".format(name_node=subscr_node))
-                lhs_load_visitor = TempScopeVisitor(self.variables, is_lhs_target=False, is_also_input_of_aug_assign=False, _class=self._class)
-                lhs_load_visitor.visit(subscr_node.slice)
-
-            def visit_Attribute(self, attribute):  # HERE we go!
-                if type(attribute.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-                    lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, _class=self._class)
-                    lhs_visitor.visit(attribute.value)
-                elif type(attribute.ctx) is ast.Load:
-                    self.visit(attribute.value)
-                else:
-                    raise RuntimeError("Unsupported node type: {name_node}".format(name_node=attribute))
-                
-            def visit_Assign(self, assign_node):  # HERE we go!
-                value = get_vars_for_nodes(self, assign_node.value)
-                targets = get_vars_for_nodes(self, *assign_node.targets)
-                self.variables = v_merge(self.variables, *value, h_merge(*targets), _class=self._class)
-
-            def visit_AugAssign(self, augassign_node):  # HERE we go!
-                if type(augassign_node.target.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-                    lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=True, _class=self._class)
-                    lhs_visitor.visit(augassign_node.target)
-                elif type(augassign_node.target.ctx) is ast.Load:
-                    self.visit(augassign_node.target)
-                else:
-                    raise RuntimeError("Unsupported node type: {name_node}".format(name_node=augassign_node))
-                value_visitor = TempScopeVisitor(self.variables, is_lhs_target=False, is_also_input_of_aug_assign=False, _class=self._class)
-                value_visitor.visit(augassign_node.value)
-
-            def visit_List(self, list_node: ast.List):
-                if type(list_node.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-                    lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, _class=self._class)
-                    visit_all(lhs_visitor, list_node.elts)
-                elif type(list_node.ctx) is ast.Load:
-                    super().generic_visit(list_node)
-                else:
-                    raise RuntimeError("Unsupported node type: {name_node}".format(name_node=list_node))
-
-            def visit_Tuple(self, tuple_node: ast.Tuple):
-                if type(tuple_node.ctx) in [ast.Store, ast.Del] or self.is_lhs_target:
-                    lhs_visitor = TempScopeVisitor(self.variables, is_lhs_target=True, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, _class=self._class)
-                    visit_all(lhs_visitor, tuple_node.elts)
-                elif type(tuple_node.ctx) is ast.Load:
-                    super().generic_visit(tuple_node)
-                else:
-                    raise RuntimeError("Unsupported node type: {name_node}".format(name_node=tuple_node))
-
-            def visit_alias(self, alias_node):
-                variable = alias_node.asname if alias_node.asname is not None else alias_node.name
-                self.variables.output_variables.add(variable)
-
-            def visit_arg(self, arg):
-                self.variables.introduced_variables.add(arg.arg)
-
-            def _visit_function(self, func_node: Union[ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda], func_name=None):
-                
-                # 1. Visit the type comment and the decorators
-                if type(func_node) != ast.Lambda:
-                    visit_all(self, getattr(func_node, 'type_comment', None), func_node.decorator_list, func_node.returns)
-
-                # 2. Visit the arguments
-                argument_visitor = TempScopeVisitor(ExposedVariables(), is_lhs_target=False, is_also_input_of_aug_assign=False, _class=self._class)
-                ArgumentsVisitor(self, argument_visitor).visit(func_node.args)
-                self.variables.input_variables |= argument_visitor.variables.input_variables
-                self.variables.output_variables |= argument_visitor.variables.output_variables
-
-                # 3. Visit the body
-                if type(func_node.body) == list:
-                    vars_stmts_body = get_vars_for_nodes(self, *func_node.body, _class=False)  
-                else: # This is the Lambda case
-                    vars_stmts_body = get_vars_for_nodes(self, func_node.body, _class=False)
-                vars_body = join_body_stmts_into_vars(*vars_stmts_body, _class=False)
-                
-                # 4 get func name:
-                func_name_set: Set[str] = set([func_name]) if func_name else set()
-
-                # 4. Keep the body's Input but REMOVE the arguments' introduced variables. The only output is the function name, PLUS eventual outputs from Self
-                # And also the name itself, for Recursive calls
-
-                input_vars = (vars_body.input_variables - argument_visitor.variables.introduced_variables - func_name_set) 
-                inputs_variables_in_function_in_class = (vars_body.inputs_variables_in_function_in_class - argument_visitor.variables.introduced_variables - func_name_set) 
-                globals_and_nonlocals = vars_body.global_variables | vars_body.nonlocal_variables
-
-                if self._class:
-                    self.variables.inputs_variables_in_function_in_class |= input_vars | globals_and_nonlocals
-                else:
-                    self.variables.input_variables |= (input_vars - self.variables.output_variables) | globals_and_nonlocals
-                    self.variables.inputs_variables_in_function_in_class |= (inputs_variables_in_function_in_class - self.variables.output_variables) | globals_and_nonlocals
-
-                self.variables.output_variables |= func_name_set
-                # self.variables.nonlocal_variables |= vars_body.nonlocal_variables
-                self.variables.global_variables |= vars_body.global_variables
-
-            def visit_FunctionDef(self, func_node: ast.FunctionDef):
-                self._visit_function(func_node, func_name=func_node.name)
-
-            def visit_AsyncFunctionDef(self, func_node: ast.AsyncFunctionDef):
-                self._visit_function(func_node, func_name=func_node.name)
-
-            def visit_Lambda(self, func_node: ast.Lambda):
-                self._visit_function(func_node)
-
-            def _visit_comprehension(self, targets: List[ast.AST], comprehensions: List[ast.comprehension]):
-
-                comprehension_scopes = []
-                all_vars_target = []
-                for comprehension in comprehensions:
-                    vars_target, vars_iter = get_vars_for_nodes(self, comprehension.target, comprehension.iter)
-                    vars_ifs = get_vars_for_nodes(self, *comprehension.ifs)
-                    comprehension_scopes.append(v_merge(vars_target, vars_iter, *vars_ifs))
-                    all_vars_target.extend(vars_target.output_variables)
-
-                targets_scopes = get_vars_for_nodes(self, *targets)
-
-                vars_scope = v_merge(*comprehension_scopes, h_merge(*targets_scopes))
-                # Remove vars target from the output vars by hand:
-                vars_scope.output_variables -= set(all_vars_target)
-                self.variables = v_merge(self.variables, vars_scope)
-
-            def visit_DictComp(self, comp_node: ast.DictComp):
-                return self._visit_comprehension([comp_node.key, comp_node.value], comp_node.generators)
-
-            def visit_ListComp(self, comp_node: ast.ListComp):
-                return self._visit_comprehension([comp_node.elt], comp_node.generators)
-
-            def visit_SetComp(self, comp_node: ast.SetComp):
-                return self._visit_comprehension([comp_node.elt], comp_node.generators)
-
-            def visit_GeneratorExp(self, comp_node: ast.GeneratorExp):
-                return self._visit_comprehension([comp_node.elt], comp_node.generators)
-
-            def _visit_for(self, node: Union[ast.For, ast.AsyncFor]):
-                visit_all(self, getattr(node, 'type_comment', None))
-                vars_iter, vars_target = get_vars_for_nodes(self, node.iter, node.target)
-                vars_stmts_body = get_vars_for_nodes(self, node.target, node.iter, *node.body)
-                vars_body = join_body_stmts_into_vars(*vars_stmts_body, _class=self._class)
-                vars_stmts_orelse = get_vars_for_nodes(self, node.target, node.iter, *node.orelse)
-                vars_orelse = join_body_stmts_into_vars(*vars_stmts_orelse, _class=self._class)
-
-                self.variables = v_merge(self.variables, v_merge(vars_iter, vars_target, h_merge(vars_body, vars_orelse), _class=self._class), _class=self._class)
-
-            def visit_For(self, node: ast.For):
-                self._visit_for(node)
-
-            def visit_AsyncFor(self, node: ast.AsyncFor):
-                self._visit_for(node)
-
-
-            def _visit_with(self, node: Union[ast.With, ast.AsyncWith]):
-                visit_all(self, getattr(node, 'type_comment', None))
-                vars_stmts_body = get_vars_for_nodes(self, *node.body)
-                vars_body = join_body_stmts_into_vars(*vars_stmts_body) # TO CHECK: Is this right, _class=self._class?
-
-                items_vars = []
-                for item in node.items:
-                    vars = get_vars_for_nodes(self, item.context_expr, *([item.optional_vars] if item.optional_vars else []))
-                    items_vars.append(v_merge(*vars))  # TO CHECK: Is this right?
-
-                items_vars = v_merge(*items_vars, _class=self._class) # TO CHECK: Is this right?
-                self.variables = v_merge(self.variables, v_merge(items_vars, vars_body, _class=self._class), _class=self._class)  # TO CHECK: Is this right?
-
-            def visit_With(self, node: ast.With):
-                self._visit_with(node)
-            
-            def visit_AsyncWith(self, node: ast.AsyncWith):
-                self._visit_with(node)
-
-            def _visit_if_while(self, node: Union[ast.While, ast.If]):
-                vars_test = get_vars_for_nodes(self, node.test, _class=self._class)
-                vars_stmts_body = get_vars_for_nodes(self, *node.body, _class=self._class)
-                vars_body = join_body_stmts_into_vars(*vars_stmts_body, _class=self._class)
-                vars_stmts_orelse = get_vars_for_nodes(self, *node.orelse, _class=self._class)
-                vars_orelse = join_body_stmts_into_vars(*vars_stmts_orelse, _class=self._class)
-
-                self.variables = v_merge(self.variables, v_merge(*vars_test, h_merge(vars_body, vars_orelse), _class=self._class), _class=self._class)
-                
-            def visit_If(self, node: ast.If):
-                self._visit_if_while(node)
-
-            def visit_While(self, node: ast.While):
-                self._visit_if_while(node)  
-
-            def _visit_try(self, node: ast.Try):  # ast.TryStar
-                vars_stmts_body = get_vars_for_nodes(self, *node.body, _class=self._class)
-                vars_body = join_body_stmts_into_vars(*vars_stmts_body, _class=self._class)
-                vars_stmts_orelse = get_vars_for_nodes(self, *node.orelse, _class=self._class)
-                vars_orelse = join_body_stmts_into_vars(*vars_stmts_orelse, _class=self._class)
-                vars_stmts_finalbody = get_vars_for_nodes(self, *node.finalbody, _class=self._class)
-                vars_finalbody = join_body_stmts_into_vars(*vars_stmts_finalbody, _class=self._class)
-
-                all_vars_handlers = []
-                for handler in node.handlers:
-                    scope = TempScopeVisitor(ExposedVariables(), is_lhs_target=self.is_lhs_target, is_also_input_of_aug_assign=self.is_also_input_of_aug_assign, _class=self._class)
-                    visit_all(scope, handler.type)
-                
-                    vars_stmts_handler = get_vars_for_nodes(scope, *handler.body, _class=self._class)
-                    vars_handler = join_body_stmts_into_vars(*vars_stmts_handler, _class=self._class)
-
-                    # Remove the handler.name from the input variables AND output variables, by hand:
-                    vars_handler.input_variables -= set([handler.name])
-                    vars_handler.output_variables -= set([handler.name])
-                    vars_handler.inputs_variables_in_function_in_class -= set([handler.name])
-
-                    all_vars_handlers.append(v_merge(scope.variables, vars_handler, _class=self._class))  # TO CHECK: Is this right?
-
-                self.variables = v_merge(self.variables, v_merge(vars_body, h_merge(*all_vars_handlers, vars_orelse), vars_finalbody, _class=self._class), _class=self._class)
-                
-            def visit_Try(self, node: ast.Try):
-                self._visit_try(node)
-
-            def visit_TryStar(self, node):
-                self._visit_try(node)
-
-            # Match statement support (Python 3.10+)
-            def visit_Match(self, node):
-                # Visit the subject - this is an input
-                self.visit(node.subject)
-                # Visit each case
-                for case in node.cases:
-                    self._visit_match_case(case)
-
-            def _visit_match_case(self, case):
-                # Visit the pattern - captures become outputs
-                pattern_outputs = self._get_pattern_captures(case.pattern)
-                # Pattern captures are outputs - add them BEFORE visiting guard so guard can reference them
-                self.variables.output_variables |= pattern_outputs
-                # Visit the guard if present - can have inputs (but pattern captures are already outputs)
-                if case.guard:
-                    self.visit(case.guard)
-                # Visit the body
-                vars_stmts_body = get_vars_for_nodes(self, *case.body)
-                vars_body = join_body_stmts_into_vars(*vars_stmts_body, _class=self._class)
-                self.variables = v_merge(self.variables, vars_body, _class=self._class)
-
-            def _get_pattern_captures(self, pattern) -> Set[str]:
-                """Extract captured variable names from a match pattern."""
-                captures = set()
-                if pattern is None:
-                    return captures
-                # MatchAs: "case x:" or "case _ as x:"
-                if hasattr(ast, 'MatchAs') and isinstance(pattern, ast.MatchAs):
-                    if pattern.name:  # name is a string or None
-                        captures.add(pattern.name)
-                    if pattern.pattern:
-                        captures |= self._get_pattern_captures(pattern.pattern)
-                # MatchStar: "case [*rest]:"
-                elif hasattr(ast, 'MatchStar') and isinstance(pattern, ast.MatchStar):
-                    if pattern.name:
-                        captures.add(pattern.name)
-                # MatchMapping: "case {**rest}:"
-                elif hasattr(ast, 'MatchMapping') and isinstance(pattern, ast.MatchMapping):
-                    if pattern.rest:
-                        captures.add(pattern.rest)
-                    for key, val in zip(pattern.keys, pattern.patterns):
-                        captures |= self._get_pattern_captures(val)
-                # MatchSequence: "case [a, b, c]:"
-                elif hasattr(ast, 'MatchSequence') and isinstance(pattern, ast.MatchSequence):
-                    for p in pattern.patterns:
-                        captures |= self._get_pattern_captures(p)
-                # MatchOr: "case a | b:"
-                elif hasattr(ast, 'MatchOr') and isinstance(pattern, ast.MatchOr):
-                    for p in pattern.patterns:
-                        captures |= self._get_pattern_captures(p)
-                # MatchClass: "case Point(x=a, y=b):"
-                elif hasattr(ast, 'MatchClass') and isinstance(pattern, ast.MatchClass):
-                    # The cls is an input (we need to visit it)
-                    self.visit(pattern.cls)
-                    for p in pattern.patterns:
-                        captures |= self._get_pattern_captures(p)
-                    for p in pattern.kwd_patterns:
-                        captures |= self._get_pattern_captures(p)
-                # MatchValue and MatchSingleton don't capture anything, but MatchValue can have inputs
-                elif hasattr(ast, 'MatchValue') and isinstance(pattern, ast.MatchValue):
-                    self.visit(pattern.value)
-                return captures
-
-            def visit_ClassDef(self, class_node: ast.ClassDef):
-                visit_all(self, class_node.bases, class_node.keywords, class_node.decorator_list, getattr(class_node, "type_params", None))
-
-                vars_stmts_body = get_vars_for_nodes(self, *class_node.body, _class=True)
-                vars_body = join_body_stmts_into_vars(*vars_stmts_body, _class=True)  
-
-                self.variables.input_variables |= (vars_body.input_variables - self.variables.output_variables)
-                self.variables.inputs_variables_in_function_in_class |= (vars_body.inputs_variables_in_function_in_class)
-                self.variables.output_variables |= set([class_node.name])
-                self.variables.nonlocal_variables |= vars_body.nonlocal_variables
-                self.variables.global_variables |= vars_body.global_variables
-
-
-            def visit_Global(self, global_node):
-                for name in global_node.names:
-                    self.variables.global_variables.add(name)
-
-            def visit_Nonlocal(self, nonlocal_node):
-                for name in nonlocal_node.names:
-                    self.variables.nonlocal_variables.add(name)
-
-        class ArgumentsVisitor(ast.NodeVisitor):
-            """ Util visitor to handle args only """
-            def __init__(self, expr_scope, arg_scope):
-                self.expr_scope = expr_scope
-                self.arg_scope = arg_scope
-
-            def visit_arg(self, node):
-                self.arg_scope.visit(node)
-                visit_all(self.expr_scope, node.annotation, getattr(node, 'type_comment', None))
-
-            def visit_arguments(self, node):
-                super().generic_visit(node)
-
-            def generic_visit(self, node):
-                self.expr_scope.visit(node)
-
-
-        ####################################################################################################
-        ######################### HELPER FUNCTIONS ##########################################
-        ####################################################################################################
-                
         def h_merge(*exposed_variables: ExposedVariables):
             """Merge horizontally, or in Parallel"""
             result = ExposedVariables()
@@ -435,27 +90,969 @@ class ReactivePythonDagBuilderUtils__():
             return result
                 
         def join_body_stmts_into_vars(*stmts: ExposedVariables, _class=False):
-            return v_merge(*stmts, _class=_class)  # CHECK: Is this enough?
+            return v_merge(*stmts, _class=_class)
 
-        def get_vars_for_nodes(visitor: TempScopeVisitor, *nodes: ast.AST, _class=False):
-            scopes = [TempScopeVisitor(ExposedVariables(), is_lhs_target=visitor.is_lhs_target, is_also_input_of_aug_assign=visitor.is_also_input_of_aug_assign, _class=visitor._class or _class) for _ in nodes]
-            for scope, node in zip(scopes, nodes):
-                scope.visit(node)
-            return [scope.variables for scope in scopes]
+        # ==========================================================================================================
+        # ITERATIVE (NON-RECURSIVE) AST VISITOR IMPLEMENTATION
+        # ==========================================================================================================
+        # Instead of creating child TempScopeVisitor instances recursively, we use an explicit work stack.
+        # Work items are processed in LIFO order. Two types of work:
+        # 1. VISIT: Visit a node, store result in a slot
+        # 2. CONTINUATION: Post-process collected results (merge, transform, etc.)
+        # ==========================================================================================================
 
-        def visit_all(visitor, *nodes):
-            for node in nodes:
+        # Work item type constants
+        WORK_VISIT = 0          # Visit a node and store result in slot
+        WORK_CONTINUATION = 1   # Run a continuation to process results
+
+        # Continuation type constants (what post-processing to do)
+        CONT_MERGE_VMERGE = 'v_merge'
+        CONT_MERGE_HMERGE = 'h_merge'
+        CONT_ASSIGN = 'assign'
+        CONT_AUGASSIGN = 'augassign'
+        CONT_FUNCTION = 'function'
+        CONT_COMPREHENSION = 'comprehension'
+        CONT_FOR = 'for'
+        CONT_WITH = 'with'
+        CONT_IF_WHILE = 'if_while'
+        CONT_TRY = 'try'
+        CONT_TRY_HANDLER = 'try_handler'
+        CONT_MATCH_CASE = 'match_case'
+        CONT_CLASS = 'class'
+        CONT_ARGUMENTS = 'arguments'
+
+        @dataclasses.dataclass
+        class VisitorFrame:
+            """A frame holding visitor state and result slots for collecting child results."""
+            variables: ExposedVariables
+            is_lhs_target: bool = False
+            is_also_input_of_aug_assign: bool = False
+            _class: bool = False
+            # Result slots for collecting child visit results
+            result_slots: List[Optional[ExposedVariables]] = dataclasses.field(default_factory=list)
+
+        class IterativeScopeVisitor:
+            """
+            Non-recursive AST visitor that uses an explicit work stack instead of recursion.
+            Replaces the recursive TempScopeVisitor pattern.
+            """
+
+            def __init__(self):
+                # Work stack: list of (work_type, *work_data)
+                self.work_stack: List[Tuple] = []
+                # Frame stack: each frame holds context for a level of visiting
+                self.frame_stack: List[VisitorFrame] = []
+
+            def annotate(self, tree: ast.AST) -> ExposedVariables:
+                """Main entry point - iteratively computes variables for an AST."""
+                # Initialize root frame
+                root_frame = VisitorFrame(ExposedVariables())
+                self.frame_stack = [root_frame]
+                
+                # Push initial work: visit the tree
+                self._push_visit(tree, frame_idx=0, slot_idx=None)
+                
+                # Process work stack until empty
+                self._process_work_stack()
+                
+                return root_frame.variables
+
+            def _push_visit(self, node: ast.AST, frame_idx: int, slot_idx: Optional[int],
+                           is_lhs_target: bool = False, is_also_input_of_aug_assign: bool = False,
+                           _class: bool = False, use_frame_flags: bool = False):
+                """Push a visit work item onto the stack."""
                 if node is None:
-                    pass
-                elif isinstance(node, list):
-                    visit_all(visitor, *node)
+                    return
+                if use_frame_flags:
+                    frame = self.frame_stack[frame_idx]
+                    is_lhs_target = frame.is_lhs_target
+                    is_also_input_of_aug_assign = frame.is_also_input_of_aug_assign
+                    _class = frame._class
+                self.work_stack.append((WORK_VISIT, node, frame_idx, slot_idx,
+                                       is_lhs_target, is_also_input_of_aug_assign, _class))
+
+            def _push_visit_all(self, nodes: List[ast.AST], frame_idx: int,
+                               is_lhs_target: bool = False, is_also_input_of_aug_assign: bool = False,
+                               _class: bool = False, use_frame_flags: bool = False):
+                """Push visit work items for all nodes (they share the frame's variables)."""
+                for node in reversed(nodes):  # Reversed so first node is processed first
+                    if node is not None:
+                        if isinstance(node, list):
+                            self._push_visit_all(node, frame_idx, is_lhs_target, is_also_input_of_aug_assign, _class, use_frame_flags)
+                        else:
+                            self._push_visit(node, frame_idx, slot_idx=None,
+                                           is_lhs_target=is_lhs_target, is_also_input_of_aug_assign=is_also_input_of_aug_assign,
+                                           _class=_class, use_frame_flags=use_frame_flags)
+
+            def _push_continuation(self, cont_type: str, frame_idx: int, extra_data: Any = None):
+                """Push a continuation work item onto the stack."""
+                self.work_stack.append((WORK_CONTINUATION, cont_type, frame_idx, extra_data))
+
+            def _create_child_frame(self, parent_frame_idx: int, fresh_variables: bool = True,
+                                   is_lhs_target: bool = None, is_also_input_of_aug_assign: bool = None,
+                                   _class: bool = None) -> int:
+                """Create a new frame for child visits. Returns the frame index."""
+                parent = self.frame_stack[parent_frame_idx]
+                new_frame = VisitorFrame(
+                    variables=ExposedVariables() if fresh_variables else parent.variables,
+                    is_lhs_target=is_lhs_target if is_lhs_target is not None else parent.is_lhs_target,
+                    is_also_input_of_aug_assign=is_also_input_of_aug_assign if is_also_input_of_aug_assign is not None else parent.is_also_input_of_aug_assign,
+                    _class=_class if _class is not None else parent._class,
+                )
+                self.frame_stack.append(new_frame)
+                return len(self.frame_stack) - 1
+
+            def _allocate_slots(self, frame_idx: int, count: int) -> int:
+                """Allocate result slots in a frame. Returns the starting slot index."""
+                frame = self.frame_stack[frame_idx]
+                start_idx = len(frame.result_slots)
+                frame.result_slots.extend([None] * count)
+                return start_idx
+
+            def _get_slots(self, frame_idx: int, start_idx: int, count: int) -> List[ExposedVariables]:
+                """Get results from slots."""
+                frame = self.frame_stack[frame_idx]
+                return [frame.result_slots[start_idx + i] or ExposedVariables() for i in range(count)]
+
+            def _process_work_stack(self):
+                """Main loop - process work items until stack is empty."""
+                while self.work_stack:
+                    work_item = self.work_stack.pop()
+                    work_type = work_item[0]
+                    
+                    if work_type == WORK_VISIT:
+                        _, node, frame_idx, slot_idx, is_lhs_target, is_also_input_of_aug_assign, _class = work_item
+                        self._handle_visit(node, frame_idx, slot_idx, is_lhs_target, is_also_input_of_aug_assign, _class)
+                    elif work_type == WORK_CONTINUATION:
+                        _, cont_type, frame_idx, extra_data = work_item
+                        self._handle_continuation(cont_type, frame_idx, extra_data)
+
+            def _handle_visit(self, node: ast.AST, frame_idx: int, slot_idx: Optional[int],
+                             is_lhs_target: bool, is_also_input_of_aug_assign: bool, _class: bool):
+                """Handle visiting a single node."""
+                frame = self.frame_stack[frame_idx]
+                
+                # If slot_idx is not None, we need to create a fresh frame for this visit
+                if slot_idx is not None:
+                    child_frame_idx = self._create_child_frame(
+                        frame_idx, fresh_variables=True,
+                        is_lhs_target=is_lhs_target, is_also_input_of_aug_assign=is_also_input_of_aug_assign,
+                        _class=_class
+                    )
+                    # After visiting, store result in parent's slot
+                    self.work_stack.append(('store_result', frame_idx, slot_idx, child_frame_idx))
+                    # Visit in new frame
+                    self._dispatch_node(node, child_frame_idx, is_lhs_target, is_also_input_of_aug_assign, _class)
                 else:
-                    visitor.visit(node)
+                    # Visit directly in current frame
+                    self._dispatch_node(node, frame_idx, is_lhs_target, is_also_input_of_aug_assign, _class)
+
+            def _dispatch_node(self, node: ast.AST, frame_idx: int, is_lhs_target: bool,
+                              is_also_input_of_aug_assign: bool, _class: bool):
+                """Dispatch to the appropriate handler based on node type."""
+                frame = self.frame_stack[frame_idx]
+                # Update frame flags
+                frame.is_lhs_target = is_lhs_target
+                frame.is_also_input_of_aug_assign = is_also_input_of_aug_assign
+                frame._class = _class
+                
+                node_type = type(node).__name__
+                handler = getattr(self, f'_handle_{node_type}', None)
+                if handler:
+                    handler(node, frame_idx)
+                else:
+                    # Default: generic visit - visit all child nodes
+                    self._handle_generic(node, frame_idx)
+
+            def _handle_generic(self, node: ast.AST, frame_idx: int):
+                """Default handler - visit all child nodes in AST order (left-to-right).
+                
+                IMPORTANT: Children must be pushed in REVERSE order because the work stack
+                is LIFO (last-in-first-out). This ensures children are processed in the
+                correct left-to-right order as in the original recursive visitor.
+                """
+                children = list(ast.iter_child_nodes(node))
+                for child in reversed(children):
+                    self._push_visit(child, frame_idx, slot_idx=None, use_frame_flags=True)
+
+            # ==========================================================================================================
+            # NODE HANDLERS - each handles a specific AST node type
+            # ==========================================================================================================
+
+            def _handle_Name(self, node: ast.Name, frame_idx: int):
+                """Handle Name nodes."""
+                frame = self.frame_stack[frame_idx]
+                is_input = type(node.ctx) is ast.Load or frame.is_also_input_of_aug_assign or type(node.ctx) is ast.Del
+                is_output = frame.is_lhs_target or type(node.ctx) is ast.Store
+                
+                if is_input and node.id not in frame.variables.output_variables:
+                    frame.variables.input_variables.add(node.id)
+                if is_output:
+                    frame.variables.output_variables.add(node.id)
+
+            def _handle_Subscript(self, node: ast.Subscript, frame_idx: int):
+                """Handle Subscript nodes."""
+                frame = self.frame_stack[frame_idx]
+                if type(node.ctx) in [ast.Store, ast.Del] or frame.is_lhs_target:
+                    self._push_visit(node.value, frame_idx, slot_idx=None,
+                                    is_lhs_target=True, is_also_input_of_aug_assign=frame.is_also_input_of_aug_assign,
+                                    _class=frame._class)
+                elif type(node.ctx) is ast.Load:
+                    self._push_visit(node.value, frame_idx, slot_idx=None, use_frame_flags=True)
+                else:
+                    raise RuntimeError(f"Unsupported node type: {node}")
+                # Always visit the slice with Load semantics
+                self._push_visit(node.slice, frame_idx, slot_idx=None,
+                                is_lhs_target=False, is_also_input_of_aug_assign=False, _class=frame._class)
+
+            def _handle_Attribute(self, node: ast.Attribute, frame_idx: int):
+                """Handle Attribute nodes."""
+                frame = self.frame_stack[frame_idx]
+                if type(node.ctx) in [ast.Store, ast.Del] or frame.is_lhs_target:
+                    self._push_visit(node.value, frame_idx, slot_idx=None,
+                                    is_lhs_target=True, is_also_input_of_aug_assign=frame.is_also_input_of_aug_assign,
+                                    _class=frame._class)
+                elif type(node.ctx) is ast.Load:
+                    self._push_visit(node.value, frame_idx, slot_idx=None, use_frame_flags=True)
+                else:
+                    raise RuntimeError(f"Unsupported node type: {node}")
+
+            def _handle_Assign(self, node: ast.Assign, frame_idx: int):
+                """Handle Assign nodes."""
+                frame = self.frame_stack[frame_idx]
+                # Allocate slots: 1 for value, N for targets
+                num_targets = len(node.targets)
+                slot_start = self._allocate_slots(frame_idx, 1 + num_targets)
+                
+                # Push continuation first (runs after all visits complete)
+                self._push_continuation(CONT_ASSIGN, frame_idx, (slot_start, num_targets))
+                
+                # Push visits (in reverse order so value is visited first)
+                for i, target in enumerate(reversed(node.targets)):
+                    self._push_visit(target, frame_idx, slot_idx=slot_start + num_targets - i,
+                                    is_lhs_target=frame.is_lhs_target, is_also_input_of_aug_assign=False,
+                                    _class=frame._class)
+                self._push_visit(node.value, frame_idx, slot_idx=slot_start,
+                                is_lhs_target=frame.is_lhs_target, is_also_input_of_aug_assign=False,
+                                _class=frame._class)
+
+            def _handle_AugAssign(self, node: ast.AugAssign, frame_idx: int):
+                """Handle AugAssign nodes (+=, -=, etc.)."""
+                frame = self.frame_stack[frame_idx]
+                # Visit target with augassign semantics (it's both input and output)
+                if type(node.target.ctx) in [ast.Store, ast.Del] or frame.is_lhs_target:
+                    self._push_visit(node.target, frame_idx, slot_idx=None,
+                                    is_lhs_target=True, is_also_input_of_aug_assign=True, _class=frame._class)
+                elif type(node.target.ctx) is ast.Load:
+                    self._push_visit(node.target, frame_idx, slot_idx=None, use_frame_flags=True)
+                else:
+                    raise RuntimeError(f"Unsupported node type: {node}")
+                # Visit value
+                self._push_visit(node.value, frame_idx, slot_idx=None,
+                                is_lhs_target=False, is_also_input_of_aug_assign=False, _class=frame._class)
+
+            def _handle_List(self, node: ast.List, frame_idx: int):
+                """Handle List nodes."""
+                frame = self.frame_stack[frame_idx]
+                if type(node.ctx) in [ast.Store, ast.Del] or frame.is_lhs_target:
+                    self._push_visit_all(node.elts, frame_idx,
+                                        is_lhs_target=True, is_also_input_of_aug_assign=frame.is_also_input_of_aug_assign,
+                                        _class=frame._class)
+                elif type(node.ctx) is ast.Load:
+                    self._handle_generic(node, frame_idx)
+                else:
+                    raise RuntimeError(f"Unsupported node type: {node}")
+
+            def _handle_Tuple(self, node: ast.Tuple, frame_idx: int):
+                """Handle Tuple nodes."""
+                frame = self.frame_stack[frame_idx]
+                if type(node.ctx) in [ast.Store, ast.Del] or frame.is_lhs_target:
+                    self._push_visit_all(node.elts, frame_idx,
+                                        is_lhs_target=True, is_also_input_of_aug_assign=frame.is_also_input_of_aug_assign,
+                                        _class=frame._class)
+                elif type(node.ctx) is ast.Load:
+                    self._handle_generic(node, frame_idx)
+                else:
+                    raise RuntimeError(f"Unsupported node type: {node}")
+
+            def _handle_alias(self, node: ast.alias, frame_idx: int):
+                """Handle alias nodes (for imports)."""
+                frame = self.frame_stack[frame_idx]
+                variable = node.asname if node.asname is not None else node.name
+                frame.variables.output_variables.add(variable)
+
+            def _handle_arg(self, node: ast.arg, frame_idx: int):
+                """Handle arg nodes (function arguments)."""
+                frame = self.frame_stack[frame_idx]
+                frame.variables.introduced_variables.add(node.arg)
+
+            def _handle_FunctionDef(self, node: ast.FunctionDef, frame_idx: int):
+                """Handle FunctionDef nodes."""
+                self._handle_function_common(node, frame_idx, func_name=node.name)
+
+            def _handle_AsyncFunctionDef(self, node: ast.AsyncFunctionDef, frame_idx: int):
+                """Handle AsyncFunctionDef nodes."""
+                self._handle_function_common(node, frame_idx, func_name=node.name)
+
+            def _handle_Lambda(self, node: ast.Lambda, frame_idx: int):
+                """Handle Lambda nodes."""
+                self._handle_function_common(node, frame_idx, func_name=None)
+
+            def _handle_function_common(self, node, frame_idx: int, func_name: Optional[str]):
+                """Common handler for all function-like nodes."""
+                frame = self.frame_stack[frame_idx]
+                
+                # Slots: decorators/returns (slot 0), arguments (slot 1), body (slot 2)
+                slot_start = self._allocate_slots(frame_idx, 3)
+                
+                # Push continuation
+                self._push_continuation(CONT_FUNCTION, frame_idx, (slot_start, func_name, frame._class))
+                
+                # Push body visit (in a new frame with _class=False)
+                if isinstance(node.body, list):
+                    # FunctionDef/AsyncFunctionDef: body is a list of statements
+                    body_frame_idx = self._create_child_frame(frame_idx, fresh_variables=True, _class=False)
+                    self.work_stack.append(('collect_body', frame_idx, slot_start + 2, body_frame_idx, len(node.body)))
+                    for stmt in reversed(node.body):
+                        self._push_visit(stmt, body_frame_idx, slot_idx=None, use_frame_flags=True)
+                else:
+                    # Lambda: body is a single expression
+                    self._push_visit(node.body, frame_idx, slot_idx=slot_start + 2, _class=False)
+                
+                # Push arguments visit
+                args_frame_idx = self._create_child_frame(frame_idx, fresh_variables=True)
+                self.work_stack.append(('store_result', frame_idx, slot_start + 1, args_frame_idx))
+                self._push_arguments_visit(node.args, frame_idx, args_frame_idx)
+                
+                # Push decorators/type hints visit (only for non-Lambda)
+                if not isinstance(node, ast.Lambda):
+                    decorators_frame_idx = self._create_child_frame(frame_idx, fresh_variables=True)
+                    self.work_stack.append(('store_result', frame_idx, slot_start, decorators_frame_idx))
+                    if hasattr(node, 'type_comment') and node.type_comment:
+                        pass  # Type comments are strings, not AST nodes
+                    self._push_visit_all(node.decorator_list, decorators_frame_idx, use_frame_flags=True)
+                    if node.returns:
+                        self._push_visit(node.returns, decorators_frame_idx, slot_idx=None, use_frame_flags=True)
+                else:
+                    # For Lambda, set slot 0 to empty
+                    frame.result_slots[slot_start] = ExposedVariables()
+
+            def _push_arguments_visit(self, args: ast.arguments, parent_frame_idx: int, args_frame_idx: int):
+                """Visit function arguments, separating arg names from default value expressions."""
+                # args_frame collects introduced_variables for argument names
+                # parent_frame gets inputs from default values
+                args_frame = self.frame_stack[args_frame_idx]
+                
+                # Collect all argument names as introduced variables
+                all_args = (
+                    (args.posonlyargs or []) + 
+                    args.args + 
+                    ([args.vararg] if args.vararg else []) + 
+                    args.kwonlyargs + 
+                    ([args.kwarg] if args.kwarg else [])
+                )
+                for arg in all_args:
+                    args_frame.variables.introduced_variables.add(arg.arg)
+                    # Visit annotations in parent frame (they're inputs)
+                    if arg.annotation:
+                        self._push_visit(arg.annotation, parent_frame_idx, slot_idx=None, use_frame_flags=True)
+                
+                # Visit default values in parent frame (they're inputs)
+                for default in (args.defaults or []) + (args.kw_defaults or []):
+                    if default:
+                        self._push_visit(default, parent_frame_idx, slot_idx=None, use_frame_flags=True)
+
+            def _handle_ListComp(self, node: ast.ListComp, frame_idx: int):
+                """Handle ListComp nodes."""
+                self._handle_comprehension_common([node.elt], node.generators, frame_idx)
+
+            def _handle_SetComp(self, node: ast.SetComp, frame_idx: int):
+                """Handle SetComp nodes."""
+                self._handle_comprehension_common([node.elt], node.generators, frame_idx)
+
+            def _handle_GeneratorExp(self, node: ast.GeneratorExp, frame_idx: int):
+                """Handle GeneratorExp nodes."""
+                self._handle_comprehension_common([node.elt], node.generators, frame_idx)
+
+            def _handle_DictComp(self, node: ast.DictComp, frame_idx: int):
+                """Handle DictComp nodes."""
+                self._handle_comprehension_common([node.key, node.value], node.generators, frame_idx)
+
+            def _handle_comprehension_common(self, targets: List[ast.AST], generators: List[ast.comprehension], frame_idx: int):
+                """Common handler for comprehensions."""
+                frame = self.frame_stack[frame_idx]
+                
+                # Count slots needed: for each generator (target, iter, ifs...), plus targets
+                total_slots = 0
+                gen_info = []  # (slot_start, num_ifs) for each generator
+                for gen in generators:
+                    gen_slot_start = total_slots
+                    num_ifs = len(gen.ifs)
+                    total_slots += 2 + num_ifs  # target, iter, ifs
+                    gen_info.append((gen_slot_start, num_ifs))
+                targets_slot_start = total_slots
+                total_slots += len(targets)
+                
+                slot_start = self._allocate_slots(frame_idx, total_slots)
+                
+                # Push continuation
+                self._push_continuation(CONT_COMPREHENSION, frame_idx, (slot_start, gen_info, len(targets)))
+                
+                # Push target visits
+                for i, target in enumerate(reversed(targets)):
+                    self._push_visit(target, frame_idx, slot_idx=slot_start + targets_slot_start + len(targets) - 1 - i,
+                                    is_lhs_target=frame.is_lhs_target, _class=frame._class)
+                
+                # Push generator visits (in reverse order)
+                for gen_idx, gen in enumerate(reversed(generators)):
+                    actual_gen_idx = len(generators) - 1 - gen_idx
+                    gen_slot_start, num_ifs = gen_info[actual_gen_idx]
+                    
+                    # ifs
+                    for if_idx, if_clause in enumerate(reversed(gen.ifs)):
+                        self._push_visit(if_clause, frame_idx, 
+                                        slot_idx=slot_start + gen_slot_start + 2 + num_ifs - 1 - if_idx,
+                                        is_lhs_target=frame.is_lhs_target, _class=frame._class)
+                    # iter
+                    self._push_visit(gen.iter, frame_idx, slot_idx=slot_start + gen_slot_start + 1,
+                                    is_lhs_target=frame.is_lhs_target, _class=frame._class)
+                    # target
+                    self._push_visit(gen.target, frame_idx, slot_idx=slot_start + gen_slot_start,
+                                    is_lhs_target=frame.is_lhs_target, _class=frame._class)
+
+            def _handle_For(self, node: ast.For, frame_idx: int):
+                """Handle For nodes."""
+                self._handle_for_common(node, frame_idx)
+
+            def _handle_AsyncFor(self, node: ast.AsyncFor, frame_idx: int):
+                """Handle AsyncFor nodes."""
+                self._handle_for_common(node, frame_idx)
+
+            def _handle_for_common(self, node, frame_idx: int):
+                """Common handler for For and AsyncFor."""
+                frame = self.frame_stack[frame_idx]
+                
+                # Slots: iter (0), target (1), body (2), orelse (3)
+                slot_start = self._allocate_slots(frame_idx, 4)
+                
+                # Push continuation
+                self._push_continuation(CONT_FOR, frame_idx, (slot_start, frame._class))
+                
+                # orelse - visit as body
+                orelse_frame_idx = self._create_child_frame(frame_idx, fresh_variables=True, _class=frame._class)
+                self.work_stack.append(('collect_body', frame_idx, slot_start + 3, orelse_frame_idx, 2 + len(node.orelse)))
+                for stmt in reversed(node.orelse):
+                    self._push_visit(stmt, orelse_frame_idx, slot_idx=None, use_frame_flags=True)
+                self._push_visit(node.iter, orelse_frame_idx, slot_idx=None, use_frame_flags=True)
+                self._push_visit(node.target, orelse_frame_idx, slot_idx=None, use_frame_flags=True)
+                
+                # body - visit as body
+                body_frame_idx = self._create_child_frame(frame_idx, fresh_variables=True, _class=frame._class)
+                self.work_stack.append(('collect_body', frame_idx, slot_start + 2, body_frame_idx, 2 + len(node.body)))
+                for stmt in reversed(node.body):
+                    self._push_visit(stmt, body_frame_idx, slot_idx=None, use_frame_flags=True)
+                self._push_visit(node.iter, body_frame_idx, slot_idx=None, use_frame_flags=True)
+                self._push_visit(node.target, body_frame_idx, slot_idx=None, use_frame_flags=True)
+                
+                # target and iter
+                self._push_visit(node.target, frame_idx, slot_idx=slot_start + 1,
+                                is_lhs_target=frame.is_lhs_target, _class=frame._class)
+                self._push_visit(node.iter, frame_idx, slot_idx=slot_start,
+                                is_lhs_target=frame.is_lhs_target, _class=frame._class)
+
+            def _handle_With(self, node: ast.With, frame_idx: int):
+                """Handle With nodes."""
+                self._handle_with_common(node, frame_idx)
+
+            def _handle_AsyncWith(self, node: ast.AsyncWith, frame_idx: int):
+                """Handle AsyncWith nodes."""
+                self._handle_with_common(node, frame_idx)
+
+            def _handle_with_common(self, node, frame_idx: int):
+                """Common handler for With and AsyncWith."""
+                frame = self.frame_stack[frame_idx]
+                
+                # Slots: body (0), items (1 per item)
+                num_items = len(node.items)
+                slot_start = self._allocate_slots(frame_idx, 1 + num_items)
+                
+                # Push continuation
+                self._push_continuation(CONT_WITH, frame_idx, (slot_start, num_items, frame._class))
+                
+                # Push item visits (in reverse)
+                for i, item in enumerate(reversed(node.items)):
+                    item_frame_idx = self._create_child_frame(frame_idx, fresh_variables=True, _class=frame._class)
+                    actual_i = num_items - 1 - i
+                    self.work_stack.append(('store_result', frame_idx, slot_start + 1 + actual_i, item_frame_idx))
+                    self._push_visit(item.context_expr, item_frame_idx, slot_idx=None, use_frame_flags=True)
+                    if item.optional_vars:
+                        self._push_visit(item.optional_vars, item_frame_idx, slot_idx=None, use_frame_flags=True)
+                
+                # Push body visit
+                body_frame_idx = self._create_child_frame(frame_idx, fresh_variables=True, _class=frame._class)
+                self.work_stack.append(('collect_body', frame_idx, slot_start, body_frame_idx, len(node.body)))
+                for stmt in reversed(node.body):
+                    self._push_visit(stmt, body_frame_idx, slot_idx=None, use_frame_flags=True)
+
+            def _handle_If(self, node: ast.If, frame_idx: int):
+                """Handle If nodes."""
+                self._handle_if_while_common(node, frame_idx)
+
+            def _handle_While(self, node: ast.While, frame_idx: int):
+                """Handle While nodes."""
+                self._handle_if_while_common(node, frame_idx)
+
+            def _handle_if_while_common(self, node, frame_idx: int):
+                """Common handler for If and While."""
+                frame = self.frame_stack[frame_idx]
+                
+                # Slots: test (0), body (1), orelse (2)
+                slot_start = self._allocate_slots(frame_idx, 3)
+                
+                # Push continuation
+                self._push_continuation(CONT_IF_WHILE, frame_idx, (slot_start, frame._class))
+                
+                # orelse
+                orelse_frame_idx = self._create_child_frame(frame_idx, fresh_variables=True, _class=frame._class)
+                self.work_stack.append(('collect_body', frame_idx, slot_start + 2, orelse_frame_idx, len(node.orelse)))
+                for stmt in reversed(node.orelse):
+                    self._push_visit(stmt, orelse_frame_idx, slot_idx=None, use_frame_flags=True)
+                
+                # body
+                body_frame_idx = self._create_child_frame(frame_idx, fresh_variables=True, _class=frame._class)
+                self.work_stack.append(('collect_body', frame_idx, slot_start + 1, body_frame_idx, len(node.body)))
+                for stmt in reversed(node.body):
+                    self._push_visit(stmt, body_frame_idx, slot_idx=None, use_frame_flags=True)
+                
+                # test
+                self._push_visit(node.test, frame_idx, slot_idx=slot_start, _class=frame._class)
+
+            def _handle_Try(self, node: ast.Try, frame_idx: int):
+                """Handle Try nodes."""
+                self._handle_try_common(node, frame_idx)
+
+            def _handle_TryStar(self, node, frame_idx: int):
+                """Handle TryStar nodes (Python 3.11+)."""
+                self._handle_try_common(node, frame_idx)
+
+            def _handle_try_common(self, node, frame_idx: int):
+                """Common handler for Try and TryStar."""
+                frame = self.frame_stack[frame_idx]
+                
+                # Slots: body (0), orelse (1), finalbody (2), handlers (3+)
+                num_handlers = len(node.handlers)
+                slot_start = self._allocate_slots(frame_idx, 3 + num_handlers)
+                
+                # Push continuation
+                handler_names = [h.name for h in node.handlers]
+                self._push_continuation(CONT_TRY, frame_idx, (slot_start, num_handlers, handler_names, frame._class))
+                
+                # Handlers (in reverse)
+                for i, handler in enumerate(reversed(node.handlers)):
+                    actual_i = num_handlers - 1 - i
+                    handler_frame_idx = self._create_child_frame(frame_idx, fresh_variables=True, _class=frame._class)
+                    self.work_stack.append(('collect_try_handler', frame_idx, slot_start + 3 + actual_i, 
+                                           handler_frame_idx, handler.name, len(handler.body)))
+                    # Visit handler.type in handler frame
+                    if handler.type:
+                        self._push_visit(handler.type, handler_frame_idx, slot_idx=None, use_frame_flags=True)
+                    # Visit handler body
+                    for stmt in reversed(handler.body):
+                        self._push_visit(stmt, handler_frame_idx, slot_idx=None, use_frame_flags=True)
+                
+                # finalbody
+                finalbody_frame_idx = self._create_child_frame(frame_idx, fresh_variables=True, _class=frame._class)
+                self.work_stack.append(('collect_body', frame_idx, slot_start + 2, finalbody_frame_idx, len(node.finalbody)))
+                for stmt in reversed(node.finalbody):
+                    self._push_visit(stmt, finalbody_frame_idx, slot_idx=None, use_frame_flags=True)
+                
+                # orelse
+                orelse_frame_idx = self._create_child_frame(frame_idx, fresh_variables=True, _class=frame._class)
+                self.work_stack.append(('collect_body', frame_idx, slot_start + 1, orelse_frame_idx, len(node.orelse)))
+                for stmt in reversed(node.orelse):
+                    self._push_visit(stmt, orelse_frame_idx, slot_idx=None, use_frame_flags=True)
+                
+                # body
+                body_frame_idx = self._create_child_frame(frame_idx, fresh_variables=True, _class=frame._class)
+                self.work_stack.append(('collect_body', frame_idx, slot_start, body_frame_idx, len(node.body)))
+                for stmt in reversed(node.body):
+                    self._push_visit(stmt, body_frame_idx, slot_idx=None, use_frame_flags=True)
+
+            def _handle_Match(self, node, frame_idx: int):
+                """Handle Match nodes (Python 3.10+)."""
+                frame = self.frame_stack[frame_idx]
+                
+                # Visit subject
+                self._push_visit(node.subject, frame_idx, slot_idx=None, use_frame_flags=True)
+                
+                # Visit each case
+                for case in node.cases:
+                    # Get pattern captures
+                    pattern_outputs = self._get_pattern_captures(case.pattern, frame_idx)
+                    frame.variables.output_variables |= pattern_outputs
+                    
+                    # Visit guard if present
+                    if case.guard:
+                        self._push_visit(case.guard, frame_idx, slot_idx=None, use_frame_flags=True)
+                    
+                    # Visit case body - need to merge results properly
+                    slot_start = self._allocate_slots(frame_idx, 1)
+                    self._push_continuation(CONT_MATCH_CASE, frame_idx, (slot_start, frame._class))
+                    
+                    body_frame_idx = self._create_child_frame(frame_idx, fresh_variables=True, _class=frame._class)
+                    self.work_stack.append(('collect_body', frame_idx, slot_start, body_frame_idx, len(case.body)))
+                    for stmt in reversed(case.body):
+                        self._push_visit(stmt, body_frame_idx, slot_idx=None, use_frame_flags=True)
+
+            def _get_pattern_captures(self, pattern, frame_idx: int) -> Set[str]:
+                """Extract captured variable names from a match pattern (non-recursive)."""
+                captures = set()
+                if pattern is None:
+                    return captures
+                
+                # Use a stack to process patterns iteratively
+                pattern_stack = [pattern]
+                frame = self.frame_stack[frame_idx]
+                
+                while pattern_stack:
+                    pat = pattern_stack.pop()
+                    if pat is None:
+                        continue
+                    
+                    # MatchAs: "case x:" or "case _ as x:"
+                    if hasattr(ast, 'MatchAs') and isinstance(pat, ast.MatchAs):
+                        if pat.name:
+                            captures.add(pat.name)
+                        if pat.pattern:
+                            pattern_stack.append(pat.pattern)
+                    # MatchStar: "case [*rest]:"
+                    elif hasattr(ast, 'MatchStar') and isinstance(pat, ast.MatchStar):
+                        if pat.name:
+                            captures.add(pat.name)
+                    # MatchMapping: "case {**rest}:"
+                    elif hasattr(ast, 'MatchMapping') and isinstance(pat, ast.MatchMapping):
+                        if pat.rest:
+                            captures.add(pat.rest)
+                        for val in pat.patterns:
+                            pattern_stack.append(val)
+                    # MatchSequence: "case [a, b, c]:"
+                    elif hasattr(ast, 'MatchSequence') and isinstance(pat, ast.MatchSequence):
+                        for p in pat.patterns:
+                            pattern_stack.append(p)
+                    # MatchOr: "case a | b:"
+                    elif hasattr(ast, 'MatchOr') and isinstance(pat, ast.MatchOr):
+                        for p in pat.patterns:
+                            pattern_stack.append(p)
+                    # MatchClass: "case Point(x=a, y=b):"
+                    elif hasattr(ast, 'MatchClass') and isinstance(pat, ast.MatchClass):
+                        # The cls is an input (we need to visit it)
+                        self._push_visit(pat.cls, frame_idx, slot_idx=None, use_frame_flags=True)
+                        for p in pat.patterns:
+                            pattern_stack.append(p)
+                        for p in pat.kwd_patterns:
+                            pattern_stack.append(p)
+                    # MatchValue: has inputs but no captures
+                    elif hasattr(ast, 'MatchValue') and isinstance(pat, ast.MatchValue):
+                        self._push_visit(pat.value, frame_idx, slot_idx=None, use_frame_flags=True)
+                
+                return captures
+
+            def _handle_ClassDef(self, node: ast.ClassDef, frame_idx: int):
+                """Handle ClassDef nodes."""
+                frame = self.frame_stack[frame_idx]
+                
+                # Slots: decorators/bases (0), body (1)
+                slot_start = self._allocate_slots(frame_idx, 2)
+                
+                # Push continuation
+                self._push_continuation(CONT_CLASS, frame_idx, (slot_start, node.name))
+                
+                # Body with _class=True
+                body_frame_idx = self._create_child_frame(frame_idx, fresh_variables=True, _class=True)
+                self.work_stack.append(('collect_body', frame_idx, slot_start + 1, body_frame_idx, len(node.body)))
+                for stmt in reversed(node.body):
+                    self._push_visit(stmt, body_frame_idx, slot_idx=None, use_frame_flags=True)
+                
+                # Decorators, bases, keywords in parent scope
+                deco_frame_idx = self._create_child_frame(frame_idx, fresh_variables=True, _class=frame._class)
+                self.work_stack.append(('store_result', frame_idx, slot_start, deco_frame_idx))
+                self._push_visit_all(node.bases, deco_frame_idx, use_frame_flags=True)
+                self._push_visit_all(node.keywords, deco_frame_idx, use_frame_flags=True)
+                self._push_visit_all(node.decorator_list, deco_frame_idx, use_frame_flags=True)
+                if hasattr(node, 'type_params') and node.type_params:
+                    self._push_visit_all(node.type_params, deco_frame_idx, use_frame_flags=True)
+
+            def _handle_Global(self, node: ast.Global, frame_idx: int):
+                """Handle Global nodes."""
+                frame = self.frame_stack[frame_idx]
+                for name in node.names:
+                    frame.variables.global_variables.add(name)
+
+            def _handle_Nonlocal(self, node: ast.Nonlocal, frame_idx: int):
+                """Handle Nonlocal nodes."""
+                frame = self.frame_stack[frame_idx]
+                for name in node.names:
+                    frame.variables.nonlocal_variables.add(name)
+
+            def _handle_NamedExpr(self, node, frame_idx: int):
+                """Handle NamedExpr (walrus operator :=)."""
+                frame = self.frame_stack[frame_idx]
+                # The target is an output
+                frame.variables.output_variables.add(node.target.id)
+                # Visit the value
+                self._push_visit(node.value, frame_idx, slot_idx=None, use_frame_flags=True)
+
+            # ==========================================================================================================
+            # CONTINUATION HANDLERS - post-processing after child visits
+            # ==========================================================================================================
+
+            def _handle_continuation(self, cont_type: str, frame_idx: int, extra_data: Any):
+                """Handle continuation work items."""
+                if cont_type == CONT_ASSIGN:
+                    self._cont_assign(frame_idx, extra_data)
+                elif cont_type == CONT_FUNCTION:
+                    self._cont_function(frame_idx, extra_data)
+                elif cont_type == CONT_COMPREHENSION:
+                    self._cont_comprehension(frame_idx, extra_data)
+                elif cont_type == CONT_FOR:
+                    self._cont_for(frame_idx, extra_data)
+                elif cont_type == CONT_WITH:
+                    self._cont_with(frame_idx, extra_data)
+                elif cont_type == CONT_IF_WHILE:
+                    self._cont_if_while(frame_idx, extra_data)
+                elif cont_type == CONT_TRY:
+                    self._cont_try(frame_idx, extra_data)
+                elif cont_type == CONT_MATCH_CASE:
+                    self._cont_match_case(frame_idx, extra_data)
+                elif cont_type == CONT_CLASS:
+                    self._cont_class(frame_idx, extra_data)
+
+            def _cont_assign(self, frame_idx: int, extra_data):
+                """Continuation for Assign nodes."""
+                slot_start, num_targets = extra_data
+                frame = self.frame_stack[frame_idx]
+                
+                value_vars = frame.result_slots[slot_start] or ExposedVariables()
+                target_vars = [frame.result_slots[slot_start + 1 + i] or ExposedVariables() for i in range(num_targets)]
+                
+                # v_merge(self.variables, *value, h_merge(*targets))
+                targets_merged = h_merge(*target_vars)
+                frame.variables = v_merge(frame.variables, value_vars, targets_merged, _class=frame._class)
+
+            def _cont_function(self, frame_idx: int, extra_data):
+                """Continuation for function nodes."""
+                slot_start, func_name, parent_class = extra_data
+                frame = self.frame_stack[frame_idx]
+                
+                decorators_vars = frame.result_slots[slot_start] or ExposedVariables()
+                argument_vars = frame.result_slots[slot_start + 1] or ExposedVariables()
+                body_vars = frame.result_slots[slot_start + 2] or ExposedVariables()
+                
+                # Merge decorator/annotation inputs
+                frame.variables.input_variables |= decorators_vars.input_variables
+                frame.variables.output_variables |= decorators_vars.output_variables
+                frame.variables.input_variables |= argument_vars.input_variables
+                frame.variables.output_variables |= argument_vars.output_variables
+                
+                # Function name set
+                func_name_set = {func_name} if func_name else set()
+                
+                # Compute body inputs, removing introduced variables and function name
+                input_vars = body_vars.input_variables - argument_vars.introduced_variables - func_name_set
+                inputs_in_class = body_vars.inputs_variables_in_function_in_class - argument_vars.introduced_variables - func_name_set
+                globals_and_nonlocals = body_vars.global_variables | body_vars.nonlocal_variables
+                
+                if parent_class:
+                    frame.variables.inputs_variables_in_function_in_class |= input_vars | globals_and_nonlocals
+                else:
+                    frame.variables.input_variables |= (input_vars - frame.variables.output_variables) | globals_and_nonlocals
+                    frame.variables.inputs_variables_in_function_in_class |= (inputs_in_class - frame.variables.output_variables) | globals_and_nonlocals
+                
+                frame.variables.output_variables |= func_name_set
+                frame.variables.global_variables |= body_vars.global_variables
+
+            def _cont_comprehension(self, frame_idx: int, extra_data):
+                """Continuation for comprehension nodes."""
+                slot_start, gen_info, num_targets = extra_data
+                frame = self.frame_stack[frame_idx]
+                
+                # Collect all generator vars
+                comprehension_scopes = []
+                all_vars_target = []
+                for gen_slot_start, num_ifs in gen_info:
+                    vars_target = frame.result_slots[slot_start + gen_slot_start] or ExposedVariables()
+                    vars_iter = frame.result_slots[slot_start + gen_slot_start + 1] or ExposedVariables()
+                    vars_ifs = [frame.result_slots[slot_start + gen_slot_start + 2 + i] or ExposedVariables() 
+                               for i in range(num_ifs)]
+                    comprehension_scopes.append(v_merge(vars_target, vars_iter, *vars_ifs))
+                    all_vars_target.extend(vars_target.output_variables)
+                
+                # Get target vars
+                targets_slot_start = gen_info[-1][0] + 2 + gen_info[-1][1] if gen_info else 0
+                targets_scopes = [frame.result_slots[slot_start + targets_slot_start + i] or ExposedVariables()
+                                 for i in range(num_targets)]
+                
+                # Merge
+                vars_scope = v_merge(*comprehension_scopes, h_merge(*targets_scopes))
+                vars_scope.output_variables -= set(all_vars_target)
+                frame.variables = v_merge(frame.variables, vars_scope)
+
+            def _cont_for(self, frame_idx: int, extra_data):
+                """Continuation for For nodes."""
+                slot_start, _class = extra_data
+                frame = self.frame_stack[frame_idx]
+                
+                vars_iter = frame.result_slots[slot_start] or ExposedVariables()
+                vars_target = frame.result_slots[slot_start + 1] or ExposedVariables()
+                vars_body = frame.result_slots[slot_start + 2] or ExposedVariables()
+                vars_orelse = frame.result_slots[slot_start + 3] or ExposedVariables()
+                
+                # Join body statements
+                vars_body = join_body_stmts_into_vars(vars_body, _class=_class)
+                vars_orelse = join_body_stmts_into_vars(vars_orelse, _class=_class)
+                
+                frame.variables = v_merge(
+                    frame.variables,
+                    v_merge(vars_iter, vars_target, h_merge(vars_body, vars_orelse), _class=_class),
+                    _class=_class
+                )
+
+            def _cont_with(self, frame_idx: int, extra_data):
+                """Continuation for With nodes."""
+                slot_start, num_items, _class = extra_data
+                frame = self.frame_stack[frame_idx]
+                
+                vars_body = frame.result_slots[slot_start] or ExposedVariables()
+                vars_body = join_body_stmts_into_vars(vars_body, _class=_class)
+                
+                items_vars = [frame.result_slots[slot_start + 1 + i] or ExposedVariables() for i in range(num_items)]
+                items_merged = v_merge(*[v_merge(v) for v in items_vars], _class=_class)
+                
+                frame.variables = v_merge(frame.variables, v_merge(items_merged, vars_body, _class=_class), _class=_class)
+
+            def _cont_if_while(self, frame_idx: int, extra_data):
+                """Continuation for If/While nodes."""
+                slot_start, _class = extra_data
+                frame = self.frame_stack[frame_idx]
+                
+                vars_test = frame.result_slots[slot_start] or ExposedVariables()
+                vars_body = frame.result_slots[slot_start + 1] or ExposedVariables()
+                vars_orelse = frame.result_slots[slot_start + 2] or ExposedVariables()
+                
+                vars_body = join_body_stmts_into_vars(vars_body, _class=_class)
+                vars_orelse = join_body_stmts_into_vars(vars_orelse, _class=_class)
+                
+                frame.variables = v_merge(
+                    frame.variables,
+                    v_merge(vars_test, h_merge(vars_body, vars_orelse), _class=_class),
+                    _class=_class
+                )
+
+            def _cont_try(self, frame_idx: int, extra_data):
+                """Continuation for Try nodes."""
+                slot_start, num_handlers, handler_names, _class = extra_data
+                frame = self.frame_stack[frame_idx]
+                
+                vars_body = frame.result_slots[slot_start] or ExposedVariables()
+                vars_orelse = frame.result_slots[slot_start + 1] or ExposedVariables()
+                vars_finalbody = frame.result_slots[slot_start + 2] or ExposedVariables()
+                
+                vars_body = join_body_stmts_into_vars(vars_body, _class=_class)
+                vars_orelse = join_body_stmts_into_vars(vars_orelse, _class=_class)
+                vars_finalbody = join_body_stmts_into_vars(vars_finalbody, _class=_class)
+                
+                all_vars_handlers = []
+                for i in range(num_handlers):
+                    vars_handler = frame.result_slots[slot_start + 3 + i] or ExposedVariables()
+                    handler_name = handler_names[i]
+                    # Remove handler name from input/output
+                    if handler_name:
+                        vars_handler.input_variables -= {handler_name}
+                        vars_handler.output_variables -= {handler_name}
+                        vars_handler.inputs_variables_in_function_in_class -= {handler_name}
+                    all_vars_handlers.append(vars_handler)
+                
+                frame.variables = v_merge(
+                    frame.variables,
+                    v_merge(vars_body, h_merge(*all_vars_handlers, vars_orelse), vars_finalbody, _class=_class),
+                    _class=_class
+                )
+
+            def _cont_match_case(self, frame_idx: int, extra_data):
+                """Continuation for match case bodies."""
+                slot_start, _class = extra_data
+                frame = self.frame_stack[frame_idx]
+                
+                vars_body = frame.result_slots[slot_start] or ExposedVariables()
+                vars_body = join_body_stmts_into_vars(vars_body, _class=_class)
+                frame.variables = v_merge(frame.variables, vars_body, _class=_class)
+
+            def _cont_class(self, frame_idx: int, extra_data):
+                """Continuation for ClassDef nodes."""
+                slot_start, class_name = extra_data
+                frame = self.frame_stack[frame_idx]
+                
+                decorators_vars = frame.result_slots[slot_start] or ExposedVariables()
+                body_vars = frame.result_slots[slot_start + 1] or ExposedVariables()
+                body_vars = join_body_stmts_into_vars(body_vars, _class=True)
+                
+                # Merge decorators/bases
+                frame.variables.input_variables |= decorators_vars.input_variables
+                frame.variables.output_variables |= decorators_vars.output_variables
+                
+                # Merge body
+                frame.variables.input_variables |= (body_vars.input_variables - frame.variables.output_variables)
+                frame.variables.inputs_variables_in_function_in_class |= body_vars.inputs_variables_in_function_in_class
+                frame.variables.output_variables |= {class_name}
+                frame.variables.nonlocal_variables |= body_vars.nonlocal_variables
+                frame.variables.global_variables |= body_vars.global_variables
+
+            def _process_work_stack(self):
+                """Main loop - process work items until stack is empty."""
+                while self.work_stack:
+                    work_item = self.work_stack.pop()
+                    work_type = work_item[0]
+                    
+                    if work_type == WORK_VISIT:
+                        _, node, frame_idx, slot_idx, is_lhs_target, is_also_input_of_aug_assign, _class = work_item
+                        self._handle_visit(node, frame_idx, slot_idx, is_lhs_target, is_also_input_of_aug_assign, _class)
+                    elif work_type == WORK_CONTINUATION:
+                        _, cont_type, frame_idx, extra_data = work_item
+                        self._handle_continuation(cont_type, frame_idx, extra_data)
+                    elif work_type == 'store_result':
+                        # Store child frame's variables into parent's slot
+                        _, parent_frame_idx, slot_idx, child_frame_idx = work_item
+                        child_vars = self.frame_stack[child_frame_idx].variables
+                        self.frame_stack[parent_frame_idx].result_slots[slot_idx] = child_vars
+                    elif work_type == 'collect_body':
+                        # Collect body frame variables (joined)
+                        _, parent_frame_idx, slot_idx, body_frame_idx, num_stmts = work_item
+                        body_vars = self.frame_stack[body_frame_idx].variables
+                        self.frame_stack[parent_frame_idx].result_slots[slot_idx] = body_vars
+                    elif work_type == 'collect_try_handler':
+                        # Collect handler frame variables
+                        _, parent_frame_idx, slot_idx, handler_frame_idx, handler_name, num_stmts = work_item
+                        handler_vars = self.frame_stack[handler_frame_idx].variables
+                        self.frame_stack[parent_frame_idx].result_slots[slot_idx] = handler_vars
+
+
+        # ==========================================================================================================
+        # The old recursive TempScopeVisitor implementation has been fully replaced by the new IterativeScopeVisitor.
+        # All variable extraction is now handled non-recursively for performance and maintainability.
+
+        # ArgumentsVisitor is no longer needed; argument handling is now integrated into the iterative visitor.
+
+
+        ####################################################################################################
+        ######################### UTILITY FUNCTIONS ##########################################
+        ####################################################################################################
 
         def annotate(tree: ast.AST):
-            annotator = TempScopeVisitor(ExposedVariables())
-            annotator.visit(tree)
-            return annotator.variables
+            """Annotate an AST tree with input/output variables using the iterative visitor."""
+            visitor = IterativeScopeVisitor()
+            return visitor.annotate(tree)
+
+        # The old recursive annotate_recursive is removed; only the iterative visitor is supported now.
 
         def get_input_variables_for(annotated_variables: ExposedVariables):
             """
