@@ -491,8 +491,9 @@ function checkSettings(globals: Map<string, string>, editor: TextEditor,) {
     // After this function, you are: in settings_not_ok if they are not ok, or in THE SAME PREVIOUS STATES if they are, except if you were in settings_not_ok, in which case you are in initializable
     // Obviously, returns True if settings are ok, else False
 
-    const creationMode = vscode.workspace.getConfiguration('jupyter').get<string>('interactiveWindow.creationMode');
-    const shiftEnter = vscode.workspace.getConfiguration('jupyter').get<boolean>('interactiveWindow.textEditor.executeSelection');
+    const resourceUri = editor.document.uri;
+    const creationMode = vscode.workspace.getConfiguration('jupyter', resourceUri).get<string>('interactiveWindow.creationMode');
+    const shiftEnter = vscode.workspace.getConfiguration('jupyter', resourceUri).get<boolean>('interactiveWindow.textEditor.executeSelection');
     const perFileMode = creationMode && ['perFile', 'perfile'].includes(creationMode);
     const shiftEnterOff = shiftEnter === false;
 
