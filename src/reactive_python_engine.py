@@ -70,8 +70,9 @@ class ReactivePythonDagBuilderUtils__():
                 self._class = _class
 
             def visit_Name(self, name_node, ):
-                is_input = type(name_node.ctx) is ast.Load or self.is_also_input_of_aug_assign
-                is_output = self.is_lhs_target or type(name_node.ctx) is ast.Store or type(name_node.ctx) is ast.Del
+                is_input = type(name_node.ctx) is ast.Load or self.is_also_input_of_aug_assign or type(name_node.ctx) is ast.Del
+                is_output = self.is_lhs_target or type(name_node.ctx) is ast.Store
+                # Note: ast.Del context means we're deleting a variable - it's an input (referencing existing var), not an output
                 # is_introduction = # TODO
 
                 if is_input and not name_node.id in self.variables.output_variables:  
@@ -300,6 +301,69 @@ class ReactivePythonDagBuilderUtils__():
 
             def visit_TryStar(self, node):
                 self._visit_try(node)
+
+            # Match statement support (Python 3.10+)
+            def visit_Match(self, node):
+                # Visit the subject - this is an input
+                self.visit(node.subject)
+                # Visit each case
+                for case in node.cases:
+                    self._visit_match_case(case)
+
+            def _visit_match_case(self, case):
+                # Visit the pattern - captures become outputs
+                pattern_outputs = self._get_pattern_captures(case.pattern)
+                # Pattern captures are outputs - add them BEFORE visiting guard so guard can reference them
+                self.variables.output_variables |= pattern_outputs
+                # Visit the guard if present - can have inputs (but pattern captures are already outputs)
+                if case.guard:
+                    self.visit(case.guard)
+                # Visit the body
+                vars_stmts_body = get_vars_for_nodes(self, *case.body)
+                vars_body = join_body_stmts_into_vars(*vars_stmts_body, _class=self._class)
+                self.variables = v_merge(self.variables, vars_body, _class=self._class)
+
+            def _get_pattern_captures(self, pattern) -> Set[str]:
+                """Extract captured variable names from a match pattern."""
+                captures = set()
+                if pattern is None:
+                    return captures
+                # MatchAs: "case x:" or "case _ as x:"
+                if hasattr(ast, 'MatchAs') and isinstance(pattern, ast.MatchAs):
+                    if pattern.name:  # name is a string or None
+                        captures.add(pattern.name)
+                    if pattern.pattern:
+                        captures |= self._get_pattern_captures(pattern.pattern)
+                # MatchStar: "case [*rest]:"
+                elif hasattr(ast, 'MatchStar') and isinstance(pattern, ast.MatchStar):
+                    if pattern.name:
+                        captures.add(pattern.name)
+                # MatchMapping: "case {**rest}:"
+                elif hasattr(ast, 'MatchMapping') and isinstance(pattern, ast.MatchMapping):
+                    if pattern.rest:
+                        captures.add(pattern.rest)
+                    for key, val in zip(pattern.keys, pattern.patterns):
+                        captures |= self._get_pattern_captures(val)
+                # MatchSequence: "case [a, b, c]:"
+                elif hasattr(ast, 'MatchSequence') and isinstance(pattern, ast.MatchSequence):
+                    for p in pattern.patterns:
+                        captures |= self._get_pattern_captures(p)
+                # MatchOr: "case a | b:"
+                elif hasattr(ast, 'MatchOr') and isinstance(pattern, ast.MatchOr):
+                    for p in pattern.patterns:
+                        captures |= self._get_pattern_captures(p)
+                # MatchClass: "case Point(x=a, y=b):"
+                elif hasattr(ast, 'MatchClass') and isinstance(pattern, ast.MatchClass):
+                    # The cls is an input (we need to visit it)
+                    self.visit(pattern.cls)
+                    for p in pattern.patterns:
+                        captures |= self._get_pattern_captures(p)
+                    for p in pattern.kwd_patterns:
+                        captures |= self._get_pattern_captures(p)
+                # MatchValue and MatchSingleton don't capture anything, but MatchValue can have inputs
+                elif hasattr(ast, 'MatchValue') and isinstance(pattern, ast.MatchValue):
+                    self.visit(pattern.value)
+                return captures
 
             def visit_ClassDef(self, class_node: ast.ClassDef):
                 visit_all(self, class_node.bases, class_node.keywords, class_node.decorator_list, getattr(class_node, "type_params", None))
