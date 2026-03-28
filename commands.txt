@@ -2,7 +2,7 @@
 
 ############################################ RUN ON UBUNTU: (otherwise vscode is very broken):
 
-
+python3 sync.py
 npm run compile && code --extensionDevelopmentPath="$PWD" /tmp/test-extension-debug
 
 ############################################
@@ -25,7 +25,7 @@ sudo npm install -g @vscode/vsce
 # GUIDE: https://code.visualstudio.com/api/working-with-extensions/publishing-extension#advanced-usage 
 https://learn.microsoft.com/en-in/azure/devops/organizations/accounts/create-organization?view=azure-devops
 
-# This made from here: https://dev.azure.com/miketasca/_usersSettings/tokens
+# Use a token made from here: https://dev.azure.com/miketasca/_usersSettings/tokens
 NAME: vscode-reactive-jupyter-publish
 
 
