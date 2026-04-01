@@ -1,4 +1,7 @@
 
+## 0.5.1 - 2026-04-01
+More retry logic for the kernel connection, to avoid the extension to get stuck. (Note - it's not an april's fool i swear)
+
 ## 0.5.0 - 2026-03-28
 Fixed bugs about Tab focusing and kernel crashing. Refactored ast visitor to be slightly faster
 

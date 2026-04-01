@@ -24,7 +24,7 @@
 		"color": "#ffffff",
 		"theme": "light"
 	},
-	"version": "0.5.0",
+	"version": "0.5.1",
 	"engines": {
 		"vscode": "^1.85.0"
 	},
@@ -173,6 +173,26 @@
 			{
 				"command": "reactive-jupyter.wrap-in-reactive-block",
 				"title": "Wrap in Block",
+				"category": "Reactive Jupyter"
+			},
+			{
+				"command": "reactive-jupyter.force-reset",
+				"title": "Force Reset Reactive Jupyter (Current Editor)",
+				"category": "Reactive Jupyter"
+			},
+			{
+				"command": "reactive-jupyter.force-reset-all",
+				"title": "Force Reset Reactive Jupyter (All Editors)",
+				"category": "Reactive Jupyter"
+			},
+			{
+				"command": "reactive-jupyter.toggle-debug-mode",
+				"title": "Toggle Debug Mode",
+				"category": "Reactive Jupyter"
+			},
+			{
+				"command": "reactive-jupyter.show-state",
+				"title": "Show Current State (Debug)",
 				"category": "Reactive Jupyter"
 			}
 		],
